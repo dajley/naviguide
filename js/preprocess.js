@@ -5,7 +5,7 @@ canvas.height = SIZE;
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
 // Returns a Float32Array in NCHW layout (1 x 3 x 640 x 640), values 0 to 1.
-// The frame is stretched to a square, which distorts aspect ratio. Letterboxing can come later.
+// The frame is stretched to a square, which distorts aspect ratio.
 export function frameToTensor(videoEl) {
     ctx.drawImage(videoEl, 0, 0, SIZE, SIZE);
     const { data } = ctx.getImageData(0, 0, SIZE, SIZE);
