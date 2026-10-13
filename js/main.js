@@ -1,7 +1,6 @@
 import { startCamera, stopCamera } from "./camera.js";
 import { loadSegModel, runSeg } from "./models.js";
 import { frameToTensor } from "./preprocess.js";
-import { decodeDetections } from "./detect.js";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -11,15 +10,16 @@ let running = false;
 let timer = null;
 let busy = false;
 
-function describe(dets) {
-    if (dets.length === 0) return "Nothing detected.";
-    return dets
-        .slice(0, 5)
-        .map((d) => {
-            const name = d.kind === "moving" ? d.label : "obstacle";
-            return `${name} ${d.zone} (${d.score.toFixed(2)})`;
-        })
-        .join(", ") + ".";
+function maxClassScore(t) {
+    // output0 layout is [1, 116, N]: rows 4 to 83 are the 80 class scores.
+    const [, , N] = t.dims;
+    let max = -Infinity;
+    for (let c = 4; c < 84; c++) {
+        for (let i = 0; i < N; i++) {
+            max = Math.max(max, t.data[c * N + i]);
+        }
+    }
+    return max.toFixed(2);
 }
 
 async function inferOnce() {
@@ -29,8 +29,10 @@ async function inferOnce() {
         const t0 = performance.now();
         const out = await runSeg(frameToTensor(video));
         const ms = Math.round(performance.now() - t0);
-        const dets = decodeDetections(Object.values(out)[0]);
-        status.textContent = `${describe(dets)} ${ms} ms/frame.`;
+        const [a, b] = Object.values(out);
+        status.textContent =
+            `out0 [${a.dims}], out1 [${b.dims}]. ` +
+            `Top class score ${maxClassScore(a)}. ${ms} ms/frame.`;
     } catch (err) {
         status.textContent = `Inference error: ${err.message}`;
     } finally {
