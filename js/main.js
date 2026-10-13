@@ -1,7 +1,9 @@
 import { startCamera, stopCamera } from "./camera.js";
-import { loadSegModel, runSeg } from "./models.js";
+import { loadModels, runSeg, runDepth, runSem } from "./models.js";
 import { frameToTensor } from "./preprocess.js";
 import { decodeDetections } from "./detect.js";
+import { depthRange, depthAt } from "./depth.js";
+import { analyzeSem } from "./sem.js";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -17,9 +19,16 @@ function describe(dets) {
         .slice(0, 5)
         .map((d) => {
             const name = d.kind === "moving" ? d.label : "obstacle";
-            return `${name} ${d.zone} (${d.score.toFixed(2)})`;
+            return `${name} ${d.zone} ${d.meters.toFixed(1)}m (${d.score.toFixed(2)})`;
         })
         .join(", ") + ".";
+}
+
+function describeGround(s) {
+    const z = s.bottomWalkZones;
+    return `Ground ahead: walkable ${s.bottomWalkablePct}% ` +
+        `(left ${z.left}, center ${z.center}, right ${z.right}), ` +
+        `warning ${s.bottomWarningPct}%. Top IDs ${s.topIds}.`;
 }
 
 async function inferOnce() {
@@ -27,10 +36,23 @@ async function inferOnce() {
     busy = true;
     try {
         const t0 = performance.now();
-        const out = await runSeg(frameToTensor(video));
+        const frame = frameToTensor(video);
+        const segOut = await runSeg(frame);
+        const depthOut = await runDepth(frame);
+        const semOut = await runSem(frame);
         const ms = Math.round(performance.now() - t0);
-        const dets = decodeDetections(Object.values(out)[0]);
-        status.textContent = `${describe(dets)} ${ms} ms/frame.`;
+
+        const depthMap = Object.values(depthOut)[0];
+        const dets = decodeDetections(Object.values(segOut)[0]).map((d) => ({
+            ...d,
+            meters: depthAt(depthMap, d.box),
+        }));
+        const ground = analyzeSem(Object.values(semOut)[0]);
+        const range = depthRange(depthMap);
+
+        status.textContent =
+            `${describe(dets)} ${describeGround(ground)} ` +
+            `Depth ${range.min.toFixed(1)}–${range.max.toFixed(1)}. ${ms} ms/frame.`;
     } catch (err) {
         status.textContent = `Inference error: ${err.message}`;
     } finally {
@@ -44,8 +66,8 @@ button.addEventListener("click", async () => {
         if (!running) {
             status.textContent = "Starting camera…";
             await startCamera(video);
-            status.textContent = "Loading model…";
-            await loadSegModel();
+            status.textContent = "Loading models…";
+            await loadModels();
             running = true;
             button.textContent = "Stop";
             timer = setInterval(inferOnce, 2000);
