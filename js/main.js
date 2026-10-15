@@ -7,10 +7,10 @@ import { analyzeSem } from "./sem.js";
 import { decide, markApproaching, resetNavigation } from "./navigation.js";
 import { unlockSpeech, say } from "./speech.js";
 import { handleAlert, resetAlerts } from "./alerts.js";
+import { SEM_EVERY } from "./config.js";
 
-// Bump this number whenever you update the files. If the status line
-// doesn't show the new number, the browser is still running old code.
-const BUILD = "wall-1";
+// Bump this when you update the files, so the status line shows which build is running.
+const BUILD = "ground-2";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -19,6 +19,8 @@ const status = document.getElementById("status");
 let running = false;
 let loopId = 0;
 let busy = false;
+let cycle = 0;
+let lastGround = null;
 let prevMeters = new Map();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -36,19 +38,19 @@ function describe(dets) {
 	);
 }
 
-function fmt(v) {
-	return v == null ? "none" : v.toFixed(1);
-}
+const fmt = (v) => (v == null ? "none" : v.toFixed(1));
 
 function describeGround(s) {
 	const z = s.bottomWalkZones;
+	const ahead =
+		s.aheadM == null
+			? (s.aheadSurface ?? "none")
+			: `${s.aheadSurface} ${fmt(s.aheadM)}m`;
 	return (
-		`Ground: walkable ${s.bottomWalkablePct}% ` +
-		`(left ${z.left}, center ${z.center}, right ${z.right}), ` +
-		`warning ${s.bottomWarningPct}%, stairs ${s.hazardPct}%, door ${s.doorPct}%, ` +
-		`wall ${s.wallPct}%. ` +
-		`distances: stairs ${fmt(s.hazardM)}, door ${fmt(s.doorM)}, ` +
-		`warn ${fmt(s.warnM)}, wall ${fmt(s.wallM)}.`
+		`Under you: ${s.standingSurface ?? "unknown"}. Ahead: ${ahead}. ` +
+		`Walk zones L${z.left} C${z.center} R${z.right}, wall ${s.wallPct}%, ` +
+		`stairs ${s.hazardPct}%, door ${s.doorPct}%. ` +
+		`distances: stairs ${fmt(s.hazardM)}, door ${fmt(s.doorM)}, wall ${fmt(s.wallM)}.`
 	);
 }
 
@@ -59,21 +61,27 @@ async function inferOnce() {
 		const frame = frameToTensor(video);
 		const segOut = await runSeg(frame);
 		const depthOut = await runDepth(frame);
-		const semOut = await runSem(frame);
+		const depthMap = Object.values(depthOut)[0];
+
+		// The semantic model runs every SEM_EVERY cycles. The ground state is reused in between.
+		const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
+		if (fresh) {
+			const semOut = await runSem(frame);
+			lastGround = analyzeSem(Object.values(semOut)[0], depthMap);
+		}
+		cycle++;
 		const ms = Math.round(performance.now() - t0);
 
-		const depthMap = Object.values(depthOut)[0];
 		const dets = decodeDetections(Object.values(segOut)[0]).map((d) => ({
 			...d,
 			meters: depthAt(depthMap, d.box),
 		}));
 		prevMeters = markApproaching(dets, prevMeters);
-		const ground = analyzeSem(Object.values(semOut)[0], depthMap);
 
-		const alert = decide(dets, ground);
+		const alert = decide(dets, lastGround, fresh);
 		handleAlert(alert);
 
-		status.textContent = `[${BUILD}] Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(ground)} | ${ms} ms`;
+		status.textContent = `[${BUILD}] Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)} | ${ms} ms`;
 	} catch (err) {
 		status.textContent = `[${BUILD}] Inference error: ${err.message}`;
 	} finally {
@@ -102,6 +110,8 @@ button.addEventListener("click", async () => {
 			resetAlerts();
 			resetNavigation();
 			prevMeters = new Map();
+			cycle = 0;
+			lastGround = null;
 			status.textContent = `[${BUILD}] Starting camera…`;
 			await startCamera(video);
 			status.textContent = `[${BUILD}] Loading models…`;

@@ -5,18 +5,20 @@ import {
 	MIN_WALK_PCT,
 	OPEN_PCT,
 	NARROW_PCT,
-	WARN_PCT,
 	HAZARD_PCT,
 	DOOR_PCT,
 	WALL_PCT,
 	STAIRS_M,
 	DOOR_M,
 	SURFACE_M,
-	WALL_CLOSE_M,
+	WALL_PATH_M,
+	WALL_NEAR_M,
+	SURFACE_CONFIRM,
+	WALKABLE_NAMES,
 } from "./config.js";
 
 const OPPOSITE = { left: "right", right: "left" };
-const SIDEWALK_MIN_PCT = 20; // walkable ground in the bottom third that counts as "on a sidewalk"
+const PENDING_MS = 15000; // how long a "You are now on X" message can wait to be spoken
 
 // Horizontal extent of each zone in the 640-pixel model input.
 const IMG = 640;
@@ -26,15 +28,29 @@ const ZONES = {
 	right: [(2 * IMG) / 3, IMG],
 };
 
-// State carried between cycles.
-let prevWalkPct = 0;
-let prevWarnName = null;
-let prevWallM = null;
+// Ground state. Only updated when the semantic model gives a fresh reading.
+let currentSurface = null; // surface under the user, once confirmed
+let candidateSurface = null;
+let candidateCount = 0;
+let aheadConfirmed = null; // { name, m } for a surface ahead, used for the heads-up
+let lastAheadName = null; // the surface most recently announced as approaching
+let pendingStep = null; // surface just stepped onto, waiting to be spoken
+let pendingUntil = 0; // time after which the pending message is dropped
+let wallHist = [];
+let prevWallSmooth = null;
+let wallInfo = { smooth: null, approaching: false };
 
 export function resetNavigation() {
-	prevWalkPct = 0;
-	prevWarnName = null;
-	prevWallM = null;
+	currentSurface = null;
+	candidateSurface = null;
+	candidateCount = 0;
+	aheadConfirmed = null;
+	lastAheadName = null;
+	pendingStep = null;
+	pendingUntil = 0;
+	wallHist = [];
+	prevWallSmooth = null;
+	wallInfo = { smooth: null, approaching: false };
 }
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -46,11 +62,7 @@ export function spokenDistance(m) {
 	return half === 1 ? "1 meter" : `${half} meters`;
 }
 
-// ", 3 meters" when a distance is known, otherwise nothing.
-const distPhrase = (m) => (m == null ? "" : `, ${spokenDistance(m)}`);
-
 // Marks moving objects that got closer since the last cycle, matched by label and zone.
-// Returns the distances to compare against next cycle.
 export function markApproaching(dets, prev) {
 	const next = new Map();
 	for (const d of dets) {
@@ -62,9 +74,67 @@ export function markApproaching(dets, prev) {
 	return next;
 }
 
+// Updates the ground state from a fresh semantic reading.
+function updateGround(ground) {
+	// Surface under the user. A change normally has to hold for SURFACE_CONFIRM readings,
+	// so stepping onto a new surface doesn't flicker. If it's the surface we just warned
+	// about as approaching, one reading is enough, since the user has already been told.
+	const seen = ground.standingSurface;
+	if (seen && seen !== currentSurface) {
+		const needed = seen === lastAheadName ? 1 : SURFACE_CONFIRM;
+		if (seen === candidateSurface) {
+			candidateCount++;
+		} else {
+			candidateSurface = seen;
+			candidateCount = 1;
+		}
+		if (candidateCount >= needed) {
+			if (currentSurface !== null) {
+				pendingStep = seen;
+				pendingUntil = Date.now() + PENDING_MS;
+			}
+			currentSurface = seen;
+			candidateSurface = null;
+			candidateCount = 0;
+		}
+	} else {
+		candidateSurface = null;
+		candidateCount = 0;
+	}
+
+	// Surface ahead: no confirmation, since this is only a heads-up. Any fresh reading that
+	// differs from the surface under the user, within SURFACE_M, counts. If no depth
+	// reading is available, it still counts, just without a distance.
+	const ahead = ground.aheadSurface;
+	const inRange = ground.aheadM == null || ground.aheadM <= SURFACE_M;
+	aheadConfirmed =
+		currentSurface !== null &&
+		ahead !== null &&
+		ahead !== currentSurface &&
+		inRange
+			? { name: ahead, m: ground.aheadM ?? null }
+			: null;
+	if (aheadConfirmed) lastAheadName = aheadConfirmed.name;
+
+	// Wall in the path: median of the last 3 readings, to ignore depth noise.
+	const m = ground.wallPct >= WALL_PCT ? ground.wallM : null;
+	wallHist.push(m);
+	if (wallHist.length > 3) wallHist.shift();
+	const vals = wallHist.filter((v) => v != null).sort((a, b) => a - b);
+	const smooth = vals.length ? vals[Math.floor(vals.length / 2)] : null;
+	wallInfo = {
+		smooth,
+		approaching:
+			smooth != null &&
+			prevWallSmooth != null &&
+			prevWallSmooth - smooth >= APPROACH_M,
+	};
+	prevWallSmooth = smooth;
+}
+
 // Picks the side to step to for a single obstacle. An obstacle on the left means stepping
 // right, and the reverse. A center obstacle can go either way. Walkable or warning ground
-// both count, since the user can walk on road or grass. A side needs no close object of its own.
+// both count. A side needs no close object of its own.
 function sideToStep(zone, dets, ground) {
 	const options = zone === "center" ? ["left", "right"] : [OPPOSITE[zone]];
 	const usable = (s) => ground.bottomWalkZones[s] + ground.bottomWarnZones[s];
@@ -86,7 +156,6 @@ function zonesOverlapped(box) {
 }
 
 // Everything that can block the path, ranked by urgency, then by distance.
-// Moving objects within NEAR_M, general obstacles within CLOSE_M, and a close wall.
 function collectBlockers(dets, wallM) {
 	const list = [];
 	for (const d of dets) {
@@ -110,7 +179,7 @@ function collectBlockers(dets, wallM) {
 			});
 		}
 	}
-	if (wallM != null && wallM < WALL_CLOSE_M) {
+	if (wallM != null && wallM <= WALL_PATH_M) {
 		list.push({
 			id: "wall",
 			rank: 4,
@@ -161,30 +230,14 @@ function multiAction(top, ground) {
 }
 
 // Returns the single alert for this cycle, highest priority first.
+// fresh: true when the semantic model produced a new reading this cycle.
 // key: identifies the situation, so the same alert isn't spoken again
 // text: what to say
 // urgent: speak right away, interrupting anything being said
 // reminder: shorter text spoken if the same situation continues
-export function decide(dets, ground) {
-	// Surface change: only when the road or grass is within range.
-	const warnName =
-		ground.bottomWarningPct >= WARN_PCT &&
-		ground.warnM != null &&
-		ground.warnM <= SURFACE_M
-			? ground.warnLabel
-			: null;
-	const sidewalkEnds =
-		warnName !== null &&
-		warnName !== prevWarnName &&
-		prevWalkPct >= SIDEWALK_MIN_PCT;
-	prevWarnName = warnName;
-	prevWalkPct = ground.bottomWalkablePct;
-
-	// Wall: silent when far. Tracked across cycles so an approaching wall can be spoken.
-	const wallM = ground.wallPct >= WALL_PCT ? ground.wallM : null;
-	const wallApproaching =
-		wallM != null && prevWallM != null && prevWallM - wallM >= APPROACH_M;
-	prevWallM = wallM;
+export function decide(dets, ground, fresh = true) {
+	if (fresh) updateGround(ground);
+	const wall = wallInfo;
 
 	// 1. Stairs (object). Warns from STAIRS_M. If no depth is available, still warns for safety.
 	if (
@@ -193,14 +246,14 @@ export function decide(dets, ground) {
 	) {
 		return {
 			key: "stairs",
-			text: `Stairs ahead${distPhrase(ground.hazardM)}.`,
+			text: `Stairs ahead${ground.hazardM == null ? "" : `, ${spokenDistance(ground.hazardM)}`}.`,
 			urgent: true,
 			reminder: "Stairs still ahead.",
 		};
 	}
 
 	// 2. Two or more blockers: name the top two and give a direction that accounts for both.
-	const blockers = collectBlockers(dets, wallM);
+	const blockers = collectBlockers(dets, wall.smooth);
 	if (blockers.length >= 2) {
 		const top = blockers.slice(0, 2);
 		const action = multiAction(top, ground);
@@ -248,7 +301,6 @@ export function decide(dets, ground) {
 				reminder: `Obstacle still ${loc}.`,
 			};
 		}
-		// "Stop" is only used when there's no way around.
 		return {
 			key: `obstacle:${obstacle.zone}:stop`,
 			text: `Obstacle ${loc}, ${dist}. Stop.`,
@@ -257,19 +309,21 @@ export function decide(dets, ground) {
 		};
 	}
 
-	// 5. Single wall in the path. Only when it's close, or getting closer within near range.
+	// 5. Wall in the path, close or approaching. Guide toward a clear side if there is one.
 	if (
-		wallM != null &&
-		(wallM < WALL_CLOSE_M || (wallApproaching && wallM < NEAR_M))
+		wall.smooth != null &&
+		(wall.smooth <= WALL_PATH_M ||
+			(wall.approaching && wall.smooth <= WALL_NEAR_M))
 	) {
+		const dist = spokenDistance(wall.smooth);
+		const word = wall.approaching ? "approaching" : "ahead";
 		const side = sideToStep("center", dets, ground);
-		const word = wallApproaching ? "approaching" : "ahead";
-		const dist = spokenDistance(wallM);
+		const urgent = wall.smooth <= WALL_PATH_M;
 		if (side) {
 			return {
 				key: `wall:${side}`,
 				text: `Wall ${word}, ${dist}. Move ${side}.`,
-				urgent: true,
+				urgent,
 				reminder: "Wall still ahead.",
 			};
 		}
@@ -304,26 +358,48 @@ export function decide(dets, ground) {
 	) {
 		return {
 			key: "door",
-			text: `Door ahead${distPhrase(ground.doorM)}.`,
+			text: `Door ahead, ${spokenDistance(ground.doorM)}.`,
 			urgent: false,
 			reminder: "Door still ahead.",
 		};
 	}
 
-	// 8. Surface change ahead: road, grass, dirt, or sand, within SURFACE_M. Heads-up only.
-	if (warnName) {
-		const name = cap(warnName);
-		const dist = distPhrase(ground.warnM);
+	// 8. Just stepped onto a surface. Urgent, so it interrupts an approach message.
+	// It stays pending for PENDING_MS, so it's still spoken if something else was playing.
+	if (
+		pendingStep &&
+		pendingStep === currentSurface &&
+		Date.now() < pendingUntil
+	) {
 		return {
-			key: `ground:${warnName}`,
-			text: sidewalkEnds
-				? `Sidewalk ends. ${name} ahead${dist}.`
-				: `${name} ahead${dist}.`,
-			urgent: false,
-			reminder: `${name} still ahead.`,
+			key: `on:${pendingStep}`,
+			text: `You are now on ${pendingStep}.`,
+			urgent: true,
+			reminder: null,
 		};
 	}
 
-	// 9. Clear
+	// 9. Surface ahead that differs from the one under the user, within SURFACE_M. Heads-up only.
+	if (aheadConfirmed) {
+		const name = aheadConfirmed.name;
+		const A = cap(name);
+		const dist =
+			aheadConfirmed.m == null ? "" : `, ${spokenDistance(aheadConfirmed.m)}`;
+		const leaving =
+			currentSurface !== null &&
+			WALKABLE_NAMES.has(currentSurface) &&
+			!WALKABLE_NAMES.has(name);
+		const text = leaving
+			? `${cap(currentSurface)} ends. ${A} approaching${dist}.`
+			: `${A} approaching${dist}.`;
+		return {
+			key: `ahead:${name}`,
+			text,
+			urgent: false,
+			reminder: `${A} still ahead.`,
+		};
+	}
+
+	// 10. Clear
 	return { key: "clear", text: "Path clear.", urgent: false, reminder: null };
 }

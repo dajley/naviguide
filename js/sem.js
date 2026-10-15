@@ -4,20 +4,34 @@ import {
 	HAZARD_IDS,
 	DOOR_ID,
 	WALL_ID,
+	SURFACE_NAMES,
+	STAND_TOP,
+	AHEAD_TOP,
+	WALL_TOP,
+	SURFACE_MIN_PCT,
 } from "./config.js";
 
 const SIZE = 640;
 const BOTTOM_START = Math.round((SIZE * 2) / 3);
-const WALL_START = Math.round(SIZE / 2);
+const AHEAD_START = Math.round(SIZE * AHEAD_TOP);
+const STAND_START = Math.round(SIZE * STAND_TOP);
+const WALL_START = Math.round(SIZE * WALL_TOP);
 const BIN_M = 0.1; // depth histogram resolution, in meters
 const MAX_M = 20; // anything farther goes in the last bin
 const BINS = Math.round(MAX_M / BIN_M);
 
-// Spoken names for warning surfaces.
-const WARN_NAMES = { 6: "road", 9: "grass", 13: "dirt", 46: "sand" };
+const isGround = (id) => WALKABLE_IDS.has(id) || WARNING_IDS.has(id);
+const zoneOf = (col) =>
+	col < SIZE / 3 ? "left" : col < (2 * SIZE) / 3 ? "center" : "right";
+const WARN_KEY = { left: "warnLeft", center: "warnCenter", right: "warnRight" };
 
 function newHist() {
 	return new Uint32Array(BINS + 1);
+}
+
+function getHist(map, id) {
+	if (!map.has(id)) map.set(id, newHist());
+	return map.get(id);
 }
 
 function addDepth(h, m) {
@@ -28,7 +42,7 @@ function addDepth(h, m) {
 
 // Nearest distance: the 10th percentile, so one noisy pixel doesn't decide it.
 function nearest(h, count) {
-	if (count === 0) return null;
+	if (!h || count === 0) return null;
 	const target = count * 0.1;
 	let acc = 0;
 	for (let b = 0; b <= BINS; b++) {
@@ -38,20 +52,30 @@ function nearest(h, count) {
 	return null;
 }
 
+// The most common ground class in a band, if it covers enough of the band.
+function dominant(counts, bandTotal) {
+	let best = null;
+	let bestN = 0;
+	for (const [id, n] of counts) {
+		if (n > bestN) {
+			best = id;
+			bestN = n;
+		}
+	}
+	if (best === null) return null;
+	return Math.round((100 * bestN) / bandTotal) >= SURFACE_MIN_PCT ? best : null;
+}
+
 // Reads the [1, 640, 640] class-ID map and the matching depth map.
-// Objects (stairs, doors, walls) get the nearest distance across their pixels.
-// Surfaces (road, grass, etc.) get the nearest distance across their pixels in the bottom third.
 export function analyzeSem(t, depthMap) {
 	const d = t.data;
 	const depth = depthMap ? depthMap.data : null;
 	const total = SIZE * SIZE;
 	const counts = new Map();
-	const bottomWarnIds = new Map();
 	let walk = 0,
-		warn = 0,
 		hazard = 0,
-		door = 0;
-	let wallRegion = 0,
+		door = 0,
+		wallRegion = 0,
 		wall = 0;
 	const bottom = {
 		left: 0,
@@ -67,29 +91,25 @@ export function analyzeSem(t, depthMap) {
 
 	const hHazard = newHist(),
 		hDoor = newHist(),
-		hWarn = newHist(),
 		hWall = newHist();
 	let nHazard = 0,
 		nDoor = 0,
-		nWarn = 0,
 		nWall = 0;
+
+	const standCounts = new Map();
+	const aheadCounts = new Map();
+	const aheadHist = new Map();
+	const aheadN = new Map();
 
 	for (let i = 0; i < total; i++) {
 		const id = Math.round(d[i]);
 		counts.set(id, (counts.get(id) || 0) + 1);
 		const m = depth ? depth[i] : NaN;
-
 		const row = Math.floor(i / SIZE);
-		const col = i % SIZE;
-		const inBottom = row >= BOTTOM_START;
-		const zone =
-			col < SIZE / 3 ? "left" : col < (2 * SIZE) / 3 ? "center" : "right";
+		const zone = zoneOf(i % SIZE);
 
 		if (WALKABLE_IDS.has(id)) {
 			walk++;
-		} else if (WARNING_IDS.has(id)) {
-			warn++;
-			if (inBottom && addDepth(hWarn, m)) nWarn++;
 		} else if (HAZARD_IDS.has(id)) {
 			hazard++;
 			if (addDepth(hHazard, m)) nHazard++;
@@ -98,7 +118,7 @@ export function analyzeSem(t, depthMap) {
 			if (addDepth(hDoor, m)) nDoor++;
 		}
 
-		// Wall: center of the lower half of the frame, the area in front of the user.
+		// Wall: the center path region, from the middle of the frame down.
 		if (row >= WALL_START && zone === "center") {
 			wallRegion++;
 			if (id === WALL_ID) {
@@ -107,43 +127,49 @@ export function analyzeSem(t, depthMap) {
 			}
 		}
 
-		if (inBottom) {
+		// Side zones over the bottom third, used to pick a direction to step.
+		if (row >= BOTTOM_START) {
 			bottom.total++;
 			if (WALKABLE_IDS.has(id)) {
 				bottom.walk++;
 				bottom[zone]++;
 			} else if (WARNING_IDS.has(id)) {
 				bottom.warn++;
-				bottom[`warn${zone[0].toUpperCase()}${zone.slice(1)}`]++;
-				bottomWarnIds.set(id, (bottomWarnIds.get(id) || 0) + 1);
+				bottom[WARN_KEY[zone]]++;
+			}
+		}
+
+		// Surface under the user (bottom band) and surface ahead (band above it).
+		if (isGround(id)) {
+			if (row >= STAND_START) {
+				standCounts.set(id, (standCounts.get(id) || 0) + 1);
+			} else if (row >= AHEAD_START) {
+				aheadCounts.set(id, (aheadCounts.get(id) || 0) + 1);
+				if (depth && addDepth(getHist(aheadHist, id), m)) {
+					aheadN.set(id, (aheadN.get(id) || 0) + 1);
+				}
 			}
 		}
 	}
 
-	const pct = (n, of) => Math.round((100 * n) / of);
+	const pct = (n, of) => (of > 0 ? Math.round((100 * n) / of) : 0);
 	const topIds = [...counts.entries()]
 		.sort((a, b) => b[1] - a[1])
 		.slice(0, 5)
 		.map(([id, n]) => `${id}:${pct(n, total)}%`)
 		.join(" ");
 
-	// The most common warning surface in the bottom third, by name.
-	let warnLabel = null;
-	if (bottomWarnIds.size > 0) {
-		const [topWarnId] = [...bottomWarnIds.entries()].sort(
-			(a, b) => b[1] - a[1],
-		)[0];
-		warnLabel = WARN_NAMES[topWarnId] || "rough ground";
-	}
+	const standId = dominant(standCounts, (SIZE - STAND_START) * SIZE);
+	const aheadId = dominant(aheadCounts, (STAND_START - AHEAD_START) * SIZE);
+	const aheadNum = aheadId !== null ? aheadN.get(aheadId) || 0 : 0;
 
 	return {
-		walkablePct: pct(walk, total),
-		warningPct: pct(warn, total),
 		hazardPct: pct(hazard, total),
 		doorPct: pct(door, total),
 		wallPct: pct(wall, wallRegion),
-		bottomWalkablePct: pct(bottom.walk, bottom.total),
-		bottomWarningPct: pct(bottom.warn, bottom.total),
+		hazardM: nearest(hHazard, nHazard),
+		doorM: nearest(hDoor, nDoor),
+		wallM: nearest(hWall, nWall),
 		bottomWalkZones: {
 			left: pct(bottom.left, bottom.total),
 			center: pct(bottom.center, bottom.total),
@@ -154,11 +180,9 @@ export function analyzeSem(t, depthMap) {
 			center: pct(bottom.warnCenter, bottom.total),
 			right: pct(bottom.warnRight, bottom.total),
 		},
-		warnLabel,
-		hazardM: nearest(hHazard, nHazard),
-		doorM: nearest(hDoor, nDoor),
-		warnM: nearest(hWarn, nWarn),
-		wallM: nearest(hWall, nWall),
+		standingSurface: standId !== null ? SURFACE_NAMES[standId] : null,
+		aheadSurface: aheadId !== null ? SURFACE_NAMES[aheadId] : null,
+		aheadM: aheadNum > 0 ? nearest(aheadHist.get(aheadId), aheadNum) : null,
 		topIds,
 	};
 }
