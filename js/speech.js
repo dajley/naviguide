@@ -1,7 +1,7 @@
 const supported = "speechSynthesis" in window;
 let voice = null;
-let token = 0; // identifies the current utterance, so a cancelled one can't free the queue
 let busy = false;
+let token = 0;
 let onFree = null;
 let watchdog = null;
 
@@ -27,17 +27,24 @@ export function setOnFree(cb) {
 	onFree = cb;
 }
 
-// Call once from the Start tap. Browsers only allow speech after a user gesture.
-export function unlockSpeech() {
-	if (!supported) return;
-	speechSynthesis.speak(new SpeechSynthesisUtterance(""));
-}
-
-function finish(my) {
+// Marks speech as finished and lets the next message start.
+function freeNow(my) {
 	if (my !== token) return;
 	busy = false;
 	clearTimeout(watchdog);
 	if (onFree) onFree();
+}
+
+// Fallback for browsers that never report the end of an utterance. It waits while the
+// browser is still speaking, and gives up after a few extra seconds so the queue can't stall.
+function checkWatchdog(my, endAt) {
+	if (my !== token) return;
+	const now = Date.now();
+	if ((now < endAt || speechSynthesis.speaking) && now < endAt + 5000) {
+		watchdog = setTimeout(() => checkWatchdog(my, endAt), 250);
+		return;
+	}
+	freeNow(my);
 }
 
 function speakRaw(text) {
@@ -51,29 +58,36 @@ function speakRaw(text) {
 	}
 	u.rate = 1;
 	u.pitch = 1;
-	u.onend = () => finish(my);
-	u.onerror = () => finish(my);
+	u.onend = () => freeNow(my);
+	u.onerror = () => freeNow(my);
 	busy = true;
-	// Safety net: if the browser never reports the end, free the queue after a rough estimate.
 	clearTimeout(watchdog);
-	watchdog = setTimeout(() => finish(my), 1500 + text.length * 90);
+	const estimate = 1500 + text.length * 120;
+	watchdog = setTimeout(
+		() => checkWatchdog(my, Date.now() + estimate),
+		estimate,
+	);
 	speechSynthesis.speak(u);
 }
 
-// Speaks text and returns true if it started.
-// Normal messages wait for the current speech to finish, and return false if it's still busy.
-// Interrupting messages cancel the current speech and start right away.
-export function speakText(text, interrupt = false) {
-	if (!supported) return false;
-	if (busy && !interrupt) return false;
-	if (busy) speechSynthesis.cancel();
+// Call once from the Start tap. Browsers only allow speech after a user gesture.
+export function unlockSpeech() {
+	if (!supported || busy) return;
+	speakRaw(" ");
+}
+
+// Speaks text if nothing is playing, and returns true if it started.
+// Never cancels speech in progress, so sentences always finish.
+export function speakText(text) {
+	if (!supported || !text) return false;
+	if (busy || speechSynthesis.speaking) return false;
 	speakRaw(text);
 	return true;
 }
 
 // Kept for the Start button's "Navigation started." message.
-export function say(text, urgent = false) {
-	return speakText(text, urgent);
+export function say(text) {
+	return speakText(text);
 }
 
 // Lists the English voices this device offers, for choosing one later.
