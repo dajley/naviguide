@@ -49,28 +49,28 @@ export const SURFACE_MIN_PCT = 25; // a band counts as one surface if it covers 
 export const SURFACE_CONFIRM = 2; // fresh readings in a row before a surface change is accepted
 
 // Distance words, in meters from the depth model.
-export const CLOSE_M = 2;
-export const NEAR_M = 5;
+// CLOSE_M matches the cane's reach (about 1.5 m) plus a margin.
+export const CLOSE_M = 3; // under this: urgent, and blocks a side for steering
+export const NEAR_M = 6; // 3 to 6 m: announced, no direction
 
 // Alert ranges, in meters.
-export const STAIRS_M = 10; // stairs warn from this far
-export const DOOR_M = 5; // doors
-export const SURFACE_M = 8; // surfaces ahead, all types
-export const WALL_PATH_M = 2.5; // a wall this close in the path is a blocker
-export const WALL_NEAR_M = 4; // an approaching wall is announced within this range
+export const STAIRS_M = 9; // stairs warn from this far
+export const DOOR_M = 6; // doors, center and side
+export const SURFACE_M = 9; // surfaces ahead
+export const WALL_PATH_M = 3; // a wall this close in the path is urgent
+export const WALL_NEAR_M = 6; // an approaching wall is announced within this range
 
 // A moving object or wall is "approaching" if it got this many meters closer since the last reading.
 export const APPROACH_M = 0.3;
 
 // Ground thresholds, as percent of the frame or region.
-export const MIN_WALK_PCT = 10; // a side needs at least this much usable ground to step onto
-export const OPEN_PCT = 15; // multi-obstacle logic: a side with this much floor and no blocker is "open"
-export const NARROW_PCT = 5; // multi-obstacle logic: a side with this much floor is "narrow"
+export const OPEN_PCT = 15; // a side with this much floor and no blocker is "open"
+export const NARROW_PCT = 5; // a side with this much floor is "narrow"
 export const HAZARD_PCT = 3; // stairs anywhere in the frame
-export const DOOR_PCT = 5; // door anywhere in the frame
+export const DOOR_PCT = 5; // door share of the frame, per zone
 export const WALL_PCT = 15; // wall share of the center path region
 
 // Processing and speech timing.
 export const SEM_EVERY = 2; // run the semantic model every Nth cycle; ground is reused in between
 export const REMINDER_MS = 10000; // repeat the "still ahead" reminder after this long
-export const CONFIRM_CYCLES = 1; // a non-urgent alert must hold for this many cycles
+export const INFO_GAP_MS = 3000; // minimum time between information messages (tier 3)

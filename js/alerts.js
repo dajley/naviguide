@@ -1,43 +1,60 @@
-import { say } from "./speech.js";
-import { REMINDER_MS, CONFIRM_CYCLES } from "./config.js";
+import { speakText, setOnFree } from "./speech.js";
+import { confirmSpoken } from "./navigation.js";
+import { REMINDER_MS, INFO_GAP_MS } from "./config.js";
 
 let currentKey = null;
-let lastSpoken = 0;
-let pendingKey = null;
-let pendingCount = 0;
+let lastSpokenAt = 0;
+let lastInfoAt = 0;
+let queued = null; // { key, text, interrupt, tier }. Only the newest message is kept.
+
+// Speaks the queued message if it's still current and speech is free.
+// Information messages (tier 3) also wait until INFO_GAP_MS has passed since the last one.
+function attempt() {
+	if (!queued) return;
+	if (queued.key !== currentKey) {
+		queued = null;
+		return;
+	}
+	const now = Date.now();
+	if (queued.tier === 3 && now - lastInfoAt < INFO_GAP_MS) return;
+	if (speakText(queued.text, queued.interrupt)) {
+		if (queued.tier === 3) lastInfoAt = now;
+		lastSpokenAt = now;
+		if (queued.key.startsWith("on:")) confirmSpoken(queued.key);
+		queued = null;
+	}
+}
+
+// Called by speech.js when speech finishes, so a waiting message can be spoken.
+setOnFree(attempt);
 
 export function resetAlerts() {
-    currentKey = null;
-    lastSpoken = 0;
-    pendingKey = null;
-    pendingCount = 0;
+	currentKey = null;
+	lastSpokenAt = 0;
+	lastInfoAt = 0;
+	queued = null;
 }
 
 export function handleAlert(alert) {
-    const now = Date.now();
-
-    // Count how many cycles in a row this same situation has been detected.
-    if (alert.key === pendingKey) {
-        pendingCount++;
-    } else {
-        pendingKey = alert.key;
-        pendingCount = 1;
-    }
-
-    // Non-urgent alerts must hold steady before they're spoken.
-    if (!alert.urgent && pendingCount < CONFIRM_CYCLES) return;
-
-    // New situation: speak it.
-    if (alert.key !== currentKey) {
-        if (say(alert.text, alert.urgent)) {
-            currentKey = alert.key;
-            lastSpoken = now;
-        }
-        return;
-    }
-
-    // Same situation still going: speak the short reminder after REMINDER_MS.
-    if (alert.reminder && now - lastSpoken >= REMINDER_MS) {
-        if (say(alert.reminder)) lastSpoken = now;
-    }
+	const now = Date.now();
+	if (alert.key !== currentKey) {
+		// A new situation replaces anything still waiting, so stale messages are dropped.
+		currentKey = alert.key;
+		queued = alert.text
+			? {
+					key: alert.key,
+					text: alert.text,
+					interrupt: !!alert.interrupt,
+					tier: alert.tier,
+				}
+			: null;
+	} else if (!queued && alert.reminder && now - lastSpokenAt >= REMINDER_MS) {
+		queued = {
+			key: alert.key,
+			text: alert.reminder,
+			interrupt: false,
+			tier: alert.tier,
+		};
+	}
+	attempt();
 }

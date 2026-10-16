@@ -19,11 +19,12 @@ const WALL_START = Math.round(SIZE * WALL_TOP);
 const BIN_M = 0.1; // depth histogram resolution, in meters
 const MAX_M = 20; // anything farther goes in the last bin
 const BINS = Math.round(MAX_M / BIN_M);
+const ZONE_KEYS = ["left", "center", "right"];
+const WARN_KEY = { left: "warnLeft", center: "warnCenter", right: "warnRight" };
 
 const isGround = (id) => WALKABLE_IDS.has(id) || WARNING_IDS.has(id);
 const zoneOf = (col) =>
 	col < SIZE / 3 ? "left" : col < (2 * SIZE) / 3 ? "center" : "right";
-const WARN_KEY = { left: "warnLeft", center: "warnCenter", right: "warnRight" };
 
 function newHist() {
 	return new Uint32Array(BINS + 1);
@@ -96,6 +97,10 @@ export function analyzeSem(t, depthMap) {
 		nDoor = 0,
 		nWall = 0;
 
+	const doorZ = { left: 0, center: 0, right: 0 };
+	const nDoorZ = { left: 0, center: 0, right: 0 };
+	const hDoorZ = { left: newHist(), center: newHist(), right: newHist() };
+
 	const standCounts = new Map();
 	const aheadCounts = new Map();
 	const aheadHist = new Map();
@@ -115,7 +120,9 @@ export function analyzeSem(t, depthMap) {
 			if (addDepth(hHazard, m)) nHazard++;
 		} else if (id === DOOR_ID) {
 			door++;
+			doorZ[zone]++;
 			if (addDepth(hDoor, m)) nDoor++;
+			if (addDepth(hDoorZ[zone], m)) nDoorZ[zone]++;
 		}
 
 		// Wall: the center path region, from the middle of the frame down.
@@ -163,6 +170,14 @@ export function analyzeSem(t, depthMap) {
 	const aheadId = dominant(aheadCounts, (STAND_START - AHEAD_START) * SIZE);
 	const aheadNum = aheadId !== null ? aheadN.get(aheadId) || 0 : 0;
 
+	const doorZones = {};
+	for (const z of ZONE_KEYS) {
+		doorZones[z] = {
+			pct: pct(doorZ[z], total),
+			m: nearest(hDoorZ[z], nDoorZ[z]),
+		};
+	}
+
 	return {
 		hazardPct: pct(hazard, total),
 		doorPct: pct(door, total),
@@ -170,6 +185,7 @@ export function analyzeSem(t, depthMap) {
 		hazardM: nearest(hHazard, nHazard),
 		doorM: nearest(hDoor, nDoor),
 		wallM: nearest(hWall, nWall),
+		doorZones,
 		bottomWalkZones: {
 			left: pct(bottom.left, bottom.total),
 			center: pct(bottom.center, bottom.total),
