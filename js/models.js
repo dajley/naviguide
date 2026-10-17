@@ -1,29 +1,71 @@
 const SEG_URL = "./models/yolo26n-seg.onnx";
 const DEPTH_URL = "./models/yolo26n-depth.onnx";
 const SEM_URL = "./models/yolo26n-sem-ade20k.onnx";
+
 let segSession = null;
 let depthSession = null;
 let semSession = null;
+let backend = "none";
 
+const GPU_OPTS = {
+	executionProviders: ["webgpu", "wasm"],
+	preferredOutputLocation: "cpu",
+};
+const CPU_OPTS = { executionProviders: ["wasm"] };
+
+// True only if the browser exposes WebGPU and can give us a GPU adapter.
+async function webgpuAvailable() {
+	try {
+		if (!navigator.gpu) return false;
+		return !!(await navigator.gpu.requestAdapter());
+	} catch {
+		return false;
+	}
+}
+
+function createAll(opts) {
+	return Promise.all(
+		[SEG_URL, DEPTH_URL, SEM_URL].map((u) =>
+			ort.InferenceSession.create(u, opts),
+		),
+	);
+}
+
+// Tries WebGPU for all three models. If any fails, all three use the CPU path,
+// so the models never run on mixed backends.
 export async function loadModels() {
-    const opts = { executionProviders: ["wasm"] };
-    if (!segSession) segSession = await ort.InferenceSession.create(SEG_URL, opts);
-    if (!depthSession) depthSession = await ort.InferenceSession.create(DEPTH_URL, opts);
-    if (!semSession) semSession = await ort.InferenceSession.create(SEM_URL, opts);
+	if (segSession && depthSession && semSession) return;
+
+	if (await webgpuAvailable()) {
+		try {
+			[segSession, depthSession, semSession] = await createAll(GPU_OPTS);
+			backend = "webgpu";
+			return;
+		} catch (err) {
+			console.warn("WebGPU unavailable, using CPU:", err);
+		}
+	}
+
+	[segSession, depthSession, semSession] = await createAll(CPU_OPTS);
+	backend = "cpu";
+}
+
+export function getBackend() {
+	return backend;
 }
 
 function input(data) {
-    return new ort.Tensor("float32", data, [1, 3, 640, 640]);
+	return new ort.Tensor("float32", data, [1, 3, 640, 640]);
 }
 
 export async function runSeg(data) {
-    return segSession.run({ [segSession.inputNames[0]]: input(data) });
+	return segSession.run({ [segSession.inputNames[0]]: input(data) });
 }
 
 export async function runDepth(data) {
-    return depthSession.run({ [depthSession.inputNames[0]]: input(data) });
+	return depthSession.run({ [depthSession.inputNames[0]]: input(data) });
 }
 
 export async function runSem(data) {
-    return semSession.run({ [semSession.inputNames[0]]: input(data) });
+	return semSession.run({ [semSession.inputNames[0]]: input(data) });
 }

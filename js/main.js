@@ -1,16 +1,18 @@
 import { startCamera, stopCamera } from "./camera.js";
-import { loadModels, runSeg, runDepth, runSem } from "./models.js";
+import { loadModels, runSeg, runDepth, runSem, getBackend } from "./models.js";
 import { frameToTensor } from "./preprocess.js";
 import { decodeDetections } from "./detect.js";
-import { depthRange, depthAt } from "./depth.js";
+import { depthAt } from "./depth.js";
 import { analyzeSem } from "./sem.js";
 import { decide, markApproaching, resetNavigation } from "./navigation.js";
 import { unlockSpeech, say } from "./speech.js";
 import { handleAlert, resetAlerts } from "./alerts.js";
 import { SEM_EVERY } from "./config.js";
+import { drawOverlay, clearOverlay } from "./overlay.js";
+import { updateGeometry } from "./geometry.js";
 
 // Bump this when you update the files, so the status line shows which build is running.
-const BUILD = "ground-2";
+const BUILD = "overlay-5";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -21,6 +23,7 @@ let loopId = 0;
 let busy = false;
 let cycle = 0;
 let lastGround = null;
+let lastSemMap = null;
 let prevMeters = new Map();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -58,16 +61,18 @@ async function inferOnce() {
 	busy = true;
 	try {
 		const t0 = performance.now();
+		updateGeometry(video.videoWidth, video.videoHeight);
 		const frame = frameToTensor(video);
 		const segOut = await runSeg(frame);
 		const depthOut = await runDepth(frame);
 		const depthMap = Object.values(depthOut)[0];
 
-		// The semantic model runs every SEM_EVERY cycles. The ground state is reused in between.
+		// The semantic model runs every SEM_EVERY cycles. Its class map and ground state are reused in between.
 		const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
 		if (fresh) {
 			const semOut = await runSem(frame);
-			lastGround = analyzeSem(Object.values(semOut)[0], depthMap);
+			lastSemMap = Object.values(semOut)[0];
+			lastGround = analyzeSem(lastSemMap, depthMap);
 		}
 		cycle++;
 		const ms = Math.round(performance.now() - t0);
@@ -78,10 +83,12 @@ async function inferOnce() {
 		}));
 		prevMeters = markApproaching(dets, prevMeters);
 
+		// The alert is decided first, so the overlay can highlight what it's about.
 		const alert = decide(dets, lastGround, fresh);
 		handleAlert(alert);
+		drawOverlay(video, lastSemMap, alert.focus);
 
-		status.textContent = `[${BUILD}] Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)} | ${ms} ms`;
+		status.textContent = `[${BUILD} ${getBackend()}] Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)} | ${ms} ms`;
 	} catch (err) {
 		status.textContent = `[${BUILD}] Inference error: ${err.message}`;
 	} finally {
@@ -112,6 +119,7 @@ button.addEventListener("click", async () => {
 			prevMeters = new Map();
 			cycle = 0;
 			lastGround = null;
+			lastSemMap = null;
 			status.textContent = `[${BUILD}] Starting camera…`;
 			await startCamera(video);
 			status.textContent = `[${BUILD}] Loading models…`;
@@ -125,6 +133,7 @@ button.addEventListener("click", async () => {
 			running = false;
 			loopId++;
 			stopCamera(video);
+			clearOverlay();
 			button.textContent = "Start";
 			status.textContent = `[${BUILD}] Camera off.`;
 		}

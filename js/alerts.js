@@ -2,13 +2,19 @@ import { speakText, setOnFree } from "./speech.js";
 import { confirmSpoken } from "./navigation.js";
 import { REMINDER_MS, INFO_GAP_MS } from "./config.js";
 
+// A subject (for example, the person on your left) isn't spoken again within this window,
+// even if its wording or direction changes. Safety messages are exempt.
+const TOPIC_COOLDOWN_MS = 8000;
+
 let currentKey = null;
 let lastSpokenAt = 0;
 let lastInfoAt = 0;
-let queued = null; // { key, text, tier }. Only the newest message is kept.
+let lastTopicAt = new Map();
+let queued = null; // { key, text, tier, topic, safety }. Only the newest message is kept.
 
 // Speaks the queued message once speech is free. Sentences are never cut off.
-// Information messages (tier 3) also wait until INFO_GAP_MS has passed since the last one.
+// Information messages (tier 3) wait INFO_GAP_MS after the last one.
+// Repeats of a recently spoken subject are dropped unless they're safety messages.
 function attempt() {
 	if (!queued) return;
 	if (queued.key !== currentKey) {
@@ -17,9 +23,19 @@ function attempt() {
 	}
 	const now = Date.now();
 	if (queued.tier === 3 && now - lastInfoAt < INFO_GAP_MS) return;
+
+	if (!queued.safety && queued.topic) {
+		const last = lastTopicAt.get(queued.topic);
+		if (last !== undefined && now - last < TOPIC_COOLDOWN_MS) {
+			queued = null;
+			return;
+		}
+	}
+
 	if (speakText(queued.text)) {
 		if (queued.tier === 3) lastInfoAt = now;
 		lastSpokenAt = now;
+		if (queued.topic) lastTopicAt.set(queued.topic, now);
 		if (queued.key.startsWith("on:")) confirmSpoken(queued.key);
 		queued = null;
 	}
@@ -32,6 +48,7 @@ export function resetAlerts() {
 	currentKey = null;
 	lastSpokenAt = 0;
 	lastInfoAt = 0;
+	lastTopicAt = new Map();
 	queued = null;
 }
 
@@ -41,10 +58,22 @@ export function handleAlert(alert) {
 		// A new situation replaces anything still waiting, so stale messages are dropped.
 		currentKey = alert.key;
 		queued = alert.text
-			? { key: alert.key, text: alert.text, tier: alert.tier }
+			? {
+					key: alert.key,
+					text: alert.text,
+					tier: alert.tier,
+					topic: alert.topic,
+					safety: alert.safety,
+				}
 			: null;
 	} else if (!queued && alert.reminder && now - lastSpokenAt >= REMINDER_MS) {
-		queued = { key: alert.key, text: alert.reminder, tier: alert.tier };
+		queued = {
+			key: alert.key,
+			text: alert.reminder,
+			tier: alert.tier,
+			topic: alert.topic,
+			safety: alert.safety,
+		};
 	}
 	attempt();
 }

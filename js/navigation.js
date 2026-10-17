@@ -38,7 +38,7 @@ let candidateSurface = null;
 let candidateCount = 0;
 let aheadConfirmed = null;
 let lastAheadName = null;
-let pendingStep = null; // surface just stepped onto, kept until it's spoken
+let pendingStep = null;
 let structHist = [];
 let prevStructSmooth = null;
 let structName = "wall";
@@ -52,8 +52,11 @@ let secondSeen = new Map();
 let actionShown = null;
 let actionCandidate = null;
 let actionCount = 0;
-let wasObstacle = false; // an obstacle was active last time, so "Path clear" is due
-let announcedClear = false; // a clear message has been spoken since the last obstacle
+let wasObstacle = false;
+let announcedClear = false;
+
+// The lead object chosen in the most recent obstacle alert, used for the on-screen highlight.
+let lastLead = null;
 
 export function resetNavigation() {
 	currentSurface = null;
@@ -70,6 +73,7 @@ export function resetNavigation() {
 	clearObstacleState();
 	wasObstacle = false;
 	announcedClear = false;
+	lastLead = null;
 }
 
 // Called by alerts.js once the "You are now on X" message has actually been spoken.
@@ -112,7 +116,6 @@ function updateGround(ground) {
 			candidateCount = 1;
 		}
 		if (candidateCount >= needed) {
-			// A confirmed change is announced once it can be spoken. It's dropped only if the user moves on.
 			if (currentSurface !== null) pendingStep = seen;
 			currentSurface = seen;
 			candidateSurface = null;
@@ -178,13 +181,13 @@ function zonesOverlapped(box) {
 }
 
 // Everything that could be announced, ranked by priority. Lower rank wins.
-//   0  moving object approaching, under NEAR_M                  (blocks)
-//   1  moving object under NEAR_M, not approaching              (blocks)
-//   2  general obstacle under CLOSE_M                           (blocks)
-//   3  wall or building in the center, under CLOSE_M            (blocks)
-//   4  general obstacle in the center, CLOSE_M to NEAR_M        (announced only)
-//   5  general obstacle at the side, CLOSE_M to NEAR_M          (announced only)
-//   6  wall or building heads-up, CLOSE_M to NEAR_M, approaching (announced only)
+//   0  moving object approaching, under NEAR_M               (blocks)
+//   1  moving object under NEAR_M, not approaching           (blocks)
+//   2  general obstacle under CLOSE_M                        (blocks)
+//   3  wall or building in the center, under CLOSE_M         (blocks)
+//   4  general obstacle in the center, CLOSE_M to NEAR_M     (announced only)
+//   5  general obstacle at the side, CLOSE_M to NEAR_M       (announced only)
+//   6  wall or building heads-up, CLOSE_M to NEAR_M          (announced only)
 function collectCandidates(dets, struct) {
 	const list = [];
 	for (const d of dets) {
@@ -200,6 +203,8 @@ function collectCandidates(dets, struct) {
 				approaching: !!d.stableApproach,
 				blocks: true,
 				structure: false,
+				moving: true,
+				box: d.box,
 			});
 		} else if (d.meters < NEAR_M) {
 			const close = d.meters < CLOSE_M;
@@ -213,6 +218,8 @@ function collectCandidates(dets, struct) {
 				approaching: false,
 				blocks: close,
 				structure: false,
+				moving: false,
+				box: d.box,
 			});
 		}
 	}
@@ -227,6 +234,8 @@ function collectCandidates(dets, struct) {
 			zones: ["center"],
 			approaching: struct.approaching,
 			structure: true,
+			moving: false,
+			box: null,
 		};
 		if (sm < WALL_PATH_M) {
 			list.push({ ...base, rank: 3, blocks: true });
@@ -395,6 +404,7 @@ function bothPhrase(a, b) {
 // Builds the obstacle alert for this cycle from the lead object and the direction.
 function obstacleAlert(candidates, ground) {
 	const L = pickLead(candidates);
+	lastLead = L;
 	const blockers = candidates.filter((c) => c.blocks);
 
 	// The direction uses every blocker, including the lead even if it's briefly out of view.
@@ -508,14 +518,8 @@ function doorAlert(ground) {
 	return null;
 }
 
-// Returns the single alert for this cycle, highest priority first.
-// fresh: true when the semantic model produced a new reading this cycle.
-// key: identifies the situation, so the same message isn't spoken again
-// text: what to say, or "" for nothing
-// interrupt: flag kept for compatibility; speech no longer cuts off sentences
-// tier: 1 safety, 2 direction or heads-up, 3 information
-// reminder: shorter text spoken if the same situation continues
-export function decide(dets, ground, fresh = true) {
+// The alert logic. Returns the spoken message for this cycle.
+function decideAlert(dets, ground, fresh) {
 	if (fresh) updateGround(ground);
 	updateApproach(dets);
 
@@ -602,4 +606,55 @@ export function decide(dets, ground, fresh = true) {
 		};
 	}
 	return { key: "clear", text: "", interrupt: false, tier: 2, reminder: null };
+}
+
+// What the screen should highlight for this alert. Walkable surfaces are always tinted by
+// the overlay, so they don't appear here. Nothing is highlighted for "Path clear" or "Keep straight".
+function focusFor(key) {
+	if ((key.startsWith("lead:") || key.startsWith("stop:")) && lastLead) {
+		if (lastLead.structure) return { cats: ["structure"] };
+		return {
+			cats: [],
+			object: {
+				box: lastLead.box,
+				moving: lastLead.moving,
+				name: lastLead.name === "obstacle" ? "obstacle" : lastLead.name,
+				meters: lastLead.meters,
+			},
+		};
+	}
+	if (key === "stairs") return { cats: ["hazard"] };
+	if (key.startsWith("door:")) return { cats: ["door"] };
+	if (key.startsWith("ahead:")) {
+		const name = key.slice("ahead:".length);
+		return { cats: [WALKABLE_NAMES.has(name) ? "walk" : "warn"] };
+	}
+	return null;
+}
+
+// Maps an alert key to the subject it's about, so the same subject isn't repeated right away.
+function topicFor(key) {
+	if (key.startsWith("lead:") || key.startsWith("stop:")) {
+		const parts = key.split(":");
+		return `${parts[1]}:${parts[2]}`;
+	}
+	return key;
+}
+
+// Returns the single alert for this cycle, highest priority first.
+// key: identifies the situation
+// text: what to say, or "" for nothing
+// interrupt: a new stop, an object that just came within CLOSE_M, or stairs
+// tier: 1 safety, 2 direction or heads-up, 3 information
+// reminder: shorter text spoken if the same situation continues
+// focus: what the screen highlights for this alert, or null
+// topic: the subject this alert is about, used to avoid repeats
+// safety: true for messages that must not be held back by the repeat check
+export function decide(dets, ground, fresh = true) {
+	lastLead = null;
+	const alert = decideAlert(dets, ground, fresh);
+	alert.focus = focusFor(alert.key);
+	alert.topic = topicFor(alert.key);
+	alert.safety = !!alert.interrupt || alert.key.startsWith("on:");
+	return alert;
 }

@@ -1,51 +1,65 @@
 :root {
-    color-scheme: dark;
-    --bg: #000;
-    --fg: #fff;
+	color-scheme: dark;
+	--bg: #000;
+	--fg: #fff;
 }
 
 html,
 body {
-    margin: 0;
-    height: 100%;
-    background: var(--bg);
-    color: var(--fg);
-    font-family: system-ui, sans-serif;
+	margin: 0;
+	height: 100%;
+	background: var(--bg);
+	color: var(--fg);
+	font-family: system-ui, sans-serif;
 }
 
 main {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
-    box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+	box-sizing: border-box;
 }
 
-#camera {
-    flex: 1;
-    width: 100%;
-    min-height: 0;
-    object-fit: cover;
-    background: #111;
+/* The video and overlay share this box. Both use "contain", so the overlay lines up with the picture. */
+.stage {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	background: #111;
+	overflow: hidden;
+}
+
+#camera,
+#overlay {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+}
+
+#overlay {
+	pointer-events: none;
 }
 
 #status {
-    font-size: 1.25rem;
-    margin: 12px 0;
-    text-align: center;
+	font-size: 1.25rem;
+	margin: 12px 0;
+	text-align: center;
 }
 
 #toggle {
-    font-size: 1.5rem;
-    min-height: 72px;
-    margin-bottom: 16px;
-    border: none;
-    border-radius: 12px;
-    background: #ffd400;
-    color: #000;
-    font-weight: bold;
+	font-size: 1.5rem;
+	min-height: 72px;
+	margin-bottom: 16px;
+	border: none;
+	border-radius: 12px;
+	background: #ffd400;
+	color: #000;
+	font-weight: bold;
 }
 
 #toggle:disabled {
-    opacity: 0.5;
+	opacity: 0.5;
 }
