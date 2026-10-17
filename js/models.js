@@ -2,6 +2,9 @@ const SEG_URL = "./models/yolo26n-seg.onnx";
 const DEPTH_URL = "./models/yolo26n-depth.onnx";
 const SEM_URL = "./models/yolo26n-sem-ade20k.onnx";
 
+// Test switch. true runs every model on the CPU, even when WebGPU is available.
+const FORCE_CPU = true;
+
 let segSession = null;
 let depthSession = null;
 let semSession = null;
@@ -31,12 +34,12 @@ function createAll(opts) {
 	);
 }
 
-// Tries WebGPU for all three models. If any fails, all three use the CPU path,
-// so the models never run on mixed backends.
+// Tries WebGPU for all three models unless FORCE_CPU is set. If any fails, all three use the CPU
+// path, so the models never run on mixed backends.
 export async function loadModels() {
 	if (segSession && depthSession && semSession) return;
 
-	if (await webgpuAvailable()) {
+	if (!FORCE_CPU && (await webgpuAvailable())) {
 		try {
 			[segSession, depthSession, semSession] = await createAll(GPU_OPTS);
 			backend = "webgpu";

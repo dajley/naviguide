@@ -9,10 +9,10 @@ import { unlockSpeech, say } from "./speech.js";
 import { handleAlert, resetAlerts } from "./alerts.js";
 import { SEM_EVERY } from "./config.js";
 import { drawOverlay, clearOverlay } from "./overlay.js";
-import { updateGeometry } from "./geometry.js";
+import { updateGeometry, geometry } from "./geometry.js";
 
 // Bump this when you update the files, so the status line shows which build is running.
-const BUILD = "overlay-5";
+const BUILD = "fix-2";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -24,6 +24,7 @@ let busy = false;
 let cycle = 0;
 let lastGround = null;
 let lastSemMap = null;
+let camInfo = null;
 let prevMeters = new Map();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -57,6 +58,16 @@ function describeGround(s) {
 	);
 }
 
+// One line describing the camera and where the picture sits in the model's square.
+function describeCamera() {
+	const g = geometry();
+	const c = camInfo;
+	const cam = c
+		? `cam ${c.vw}x${c.vh} (track ${c.tw}x${c.th}, screen ${c.screen}, asked ${c.asked}${c.fallback ? ", fallback" : ""})`
+		: "cam ?";
+	return `${cam}, picture ${g.cw}x${g.ch} at ${g.x0},${g.y0}. Top classes: ${lastGround.topIds}.`;
+}
+
 async function inferOnce() {
 	busy = true;
 	try {
@@ -83,12 +94,13 @@ async function inferOnce() {
 		}));
 		prevMeters = markApproaching(dets, prevMeters);
 
-		// The alert is decided first, so the overlay can highlight what it's about.
 		const alert = decide(dets, lastGround, fresh);
 		handleAlert(alert);
 		drawOverlay(video, lastSemMap, alert.focus);
 
-		status.textContent = `[${BUILD} ${getBackend()}] Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)} | ${ms} ms`;
+		status.textContent =
+			`[${BUILD} ${getBackend()}] ${describeCamera()} ` +
+			`Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)} | ${ms} ms`;
 	} catch (err) {
 		status.textContent = `[${BUILD}] Inference error: ${err.message}`;
 	} finally {
@@ -121,7 +133,7 @@ button.addEventListener("click", async () => {
 			lastGround = null;
 			lastSemMap = null;
 			status.textContent = `[${BUILD}] Starting camera…`;
-			await startCamera(video);
+			camInfo = await startCamera(video);
 			status.textContent = `[${BUILD}] Loading models…`;
 			await loadModels();
 			running = true;

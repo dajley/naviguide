@@ -23,7 +23,7 @@ export const MOVING_CLASSES = new Set([
 ]);
 
 // ADE20K class IDs for the semantic model.
-export const WALKABLE_IDS = new Set([3, 11, 52]); // floor, sidewalk, pathway
+export const WALKABLE_IDS = new Set([3, 11, 52, 28]); // floor, sidewalk, path, rug
 export const WARNING_IDS = new Set([6, 9, 13, 46]); // road, grass, earth, sand
 export const HAZARD_IDS = new Set([53, 59, 121]); // stairs, stairway, step
 export const DOOR_IDS = new Set([14, 58]); // door, screen door
@@ -37,12 +37,13 @@ export const SURFACE_NAMES = {
 	3: "floor",
 	11: "sidewalk",
 	52: "path",
+	28: "rug",
 	6: "road",
 	9: "grass",
 	13: "dirt",
 	46: "sand",
 };
-export const WALKABLE_NAMES = new Set(["floor", "sidewalk", "path"]);
+export const WALKABLE_NAMES = new Set(["floor", "sidewalk", "path", "rug"]);
 
 // Ground bands, as fractions of frame height.
 export const STAND_TOP = 0.85; // bottom 15%: the surface under the user
