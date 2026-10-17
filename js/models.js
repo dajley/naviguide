@@ -3,7 +3,7 @@ const DEPTH_URL = "./models/yolo26n-depth.onnx";
 const SEM_URL = "./models/yolo26n-sem-ade20k.onnx";
 
 // Test switch. true runs every model on the CPU, even when WebGPU is available.
-const FORCE_CPU = false;
+const FORCE_CPU = true;
 
 let segSession = null;
 let depthSession = null;
