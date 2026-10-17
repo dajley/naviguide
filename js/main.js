@@ -12,7 +12,7 @@ import { drawOverlay, clearOverlay } from "./overlay.js";
 import { updateGeometry, geometry } from "./geometry.js";
 
 // Bump this when you update the files, so the status line shows which build is running.
-const BUILD = "fix-2";
+const BUILD = "offline-ready";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -99,8 +99,9 @@ async function inferOnce() {
 		drawOverlay(video, lastSemMap, alert.focus);
 
 		status.textContent =
-			`[${BUILD} ${getBackend()}] ${describeCamera()} ` +
-			`Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)} | ${ms} ms`;
+			`[${BUILD} ${getBackend()}]` +
+			` Alert: "${alert.text}" | 
+			${describeGround(lastGround)} | ${ms} ms`;
 	} catch (err) {
 		status.textContent = `[${BUILD}] Inference error: ${err.message}`;
 	} finally {
