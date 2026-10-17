@@ -26,31 +26,33 @@ async function webgpuAvailable() {
 	}
 }
 
-function createAll(opts) {
-	return Promise.all(
-		[SEG_URL, DEPTH_URL, SEM_URL].map((u) =>
-			ort.InferenceSession.create(u, opts),
-		),
-	);
-}
-
-// Tries WebGPU for all three models unless FORCE_CPU is set. If any fails, all three use the CPU
-// path, so the models never run on mixed backends.
+// Segmentation and depth use the GPU when it's available. The semantic model always runs on
+// the CPU, because some phone GPUs return wrong floor and door results for it.
 export async function loadModels() {
 	if (segSession && depthSession && semSession) return;
 
+	let gpuOk = false;
 	if (!FORCE_CPU && (await webgpuAvailable())) {
 		try {
-			[segSession, depthSession, semSession] = await createAll(GPU_OPTS);
-			backend = "webgpu";
-			return;
+			[segSession, depthSession] = await Promise.all([
+				ort.InferenceSession.create(SEG_URL, GPU_OPTS),
+				ort.InferenceSession.create(DEPTH_URL, GPU_OPTS),
+			]);
+			gpuOk = true;
 		} catch (err) {
-			console.warn("WebGPU unavailable, using CPU:", err);
+			console.warn("WebGPU unavailable for seg/depth, using CPU:", err);
 		}
 	}
 
-	[segSession, depthSession, semSession] = await createAll(CPU_OPTS);
-	backend = "cpu";
+	if (!gpuOk) {
+		[segSession, depthSession] = await Promise.all([
+			ort.InferenceSession.create(SEG_URL, CPU_OPTS),
+			ort.InferenceSession.create(DEPTH_URL, CPU_OPTS),
+		]);
+	}
+	semSession = await ort.InferenceSession.create(SEM_URL, CPU_OPTS);
+
+	backend = gpuOk ? "webgpu (seg, depth) + cpu (sem)" : "cpu";
 }
 
 export function getBackend() {

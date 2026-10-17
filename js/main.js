@@ -12,7 +12,7 @@ import { drawOverlay, clearOverlay } from "./overlay.js";
 import { updateGeometry } from "./geometry.js";
 
 // Shown in start and error messages so you can tell which build is running.
-const BUILD = "timing-1";
+const BUILD = "parallel-1";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -57,6 +57,13 @@ function describeGround(s) {
 	);
 }
 
+// Runs one model and returns its output along with how long it took.
+async function timed(run) {
+	const t = performance.now();
+	const out = await run();
+	return { out, ms: Math.round(performance.now() - t) };
+}
+
 async function inferOnce() {
 	busy = true;
 	try {
@@ -64,29 +71,26 @@ async function inferOnce() {
 		updateGeometry(video.videoWidth, video.videoHeight);
 		const frame = frameToTensor(video);
 
-		let t = performance.now();
-		const segOut = await runSeg(frame);
-		const tSeg = Math.round(performance.now() - t);
-
-		t = performance.now();
-		const depthOut = await runDepth(frame);
-		const tDepth = Math.round(performance.now() - t);
-		const depthMap = Object.values(depthOut)[0];
-
 		// The semantic model runs every SEM_EVERY cycles. Its class map and ground state are reused in between.
 		const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
-		let tSem = null;
-		if (fresh) {
-			t = performance.now();
-			const semOut = await runSem(frame);
-			tSem = Math.round(performance.now() - t);
-			lastSemMap = Object.values(semOut)[0];
+
+		// All three start together. Segmentation and depth run on the GPU, the semantic model on the CPU,
+		// so the CPU work overlaps the GPU work. A null entry means the semantic model was skipped this pass.
+		const [seg, depth, sem] = await Promise.all([
+			timed(() => runSeg(frame)),
+			timed(() => runDepth(frame)),
+			fresh ? timed(() => runSem(frame)) : null,
+		]);
+
+		const depthMap = Object.values(depth.out)[0];
+		if (sem) {
+			lastSemMap = Object.values(sem.out)[0];
 			lastGround = analyzeSem(lastSemMap, depthMap);
 		}
 		cycle++;
 		const ms = Math.round(performance.now() - t0);
 
-		const dets = decodeDetections(Object.values(segOut)[0]).map((d) => ({
+		const dets = decodeDetections(Object.values(seg.out)[0]).map((d) => ({
 			...d,
 			meters: depthAt(depthMap, d.box),
 		}));
@@ -97,17 +101,17 @@ async function inferOnce() {
 		drawOverlay(video, lastSemMap, alert.focus);
 
 		const backend = getBackend();
-		const semText = tSem === null ? "sem skipped" : `sem ${tSem} ms`;
+		const semText = sem === null ? "sem skipped" : `sem ${sem.ms} ms`;
 		console.log("timing", backend, {
-			seg: tSeg,
-			depth: tDepth,
-			sem: tSem,
+			seg: seg.ms,
+			depth: depth.ms,
+			sem: sem ? sem.ms : null,
 			total: ms,
 		});
 
 		status.textContent =
 			`[${BUILD} ${backend}] Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)} | ` +
-			`seg ${tSeg} ms, depth ${tDepth} ms, ${semText}, total ${ms} ms`;
+			`seg ${seg.ms} ms, depth ${depth.ms} ms, ${semText}, total ${ms} ms`;
 	} catch (err) {
 		status.textContent = `[${BUILD}] Inference error: ${err.message}`;
 	} finally {
