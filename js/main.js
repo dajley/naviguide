@@ -9,10 +9,10 @@ import { unlockSpeech, say } from "./speech.js";
 import { handleAlert, resetAlerts } from "./alerts.js";
 import { SEM_EVERY } from "./config.js";
 import { drawOverlay, clearOverlay } from "./overlay.js";
-import { updateGeometry, geometry } from "./geometry.js";
+import { updateGeometry } from "./geometry.js";
 
-// Bump this when you update the files, so the status line shows which build is running.
-const BUILD = "offline-ready";
+// Shown in start and error messages so you can tell which build is running.
+const BUILD = "timing-1";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -24,7 +24,6 @@ let busy = false;
 let cycle = 0;
 let lastGround = null;
 let lastSemMap = null;
-let camInfo = null;
 let prevMeters = new Map();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -44,6 +43,8 @@ function describe(dets) {
 
 const fmt = (v) => (v == null ? "none" : v.toFixed(1));
 
+// What the user needs to know about the ground: what they're standing on,
+// what is ahead, and which bottom zones are walkable.
 function describeGround(s) {
 	const z = s.bottomWalkZones;
 	const ahead =
@@ -52,20 +53,8 @@ function describeGround(s) {
 			: `${s.aheadSurface} ${fmt(s.aheadM)}m`;
 	return (
 		`Under you: ${s.standingSurface ?? "unknown"}. Ahead: ${ahead}. ` +
-		`Walk zones L${z.left} C${z.center} R${z.right}, wall ${s.wallPct}%, ` +
-		`stairs ${s.hazardPct}%, door ${s.doorPct}%. ` +
-		`distances: stairs ${fmt(s.hazardM)}, door ${fmt(s.doorM)}, wall ${fmt(s.wallM)}.`
+		`Walk zones L${z.left} C${z.center} R${z.right}.`
 	);
-}
-
-// One line describing the camera and where the picture sits in the model's square.
-function describeCamera() {
-	const g = geometry();
-	const c = camInfo;
-	const cam = c
-		? `cam ${c.vw}x${c.vh} (track ${c.tw}x${c.th}, screen ${c.screen}, asked ${c.asked}${c.fallback ? ", fallback" : ""})`
-		: "cam ?";
-	return `${cam}, picture ${g.cw}x${g.ch} at ${g.x0},${g.y0}. Top classes: ${lastGround.topIds}.`;
 }
 
 async function inferOnce() {
@@ -74,14 +63,23 @@ async function inferOnce() {
 		const t0 = performance.now();
 		updateGeometry(video.videoWidth, video.videoHeight);
 		const frame = frameToTensor(video);
+
+		let t = performance.now();
 		const segOut = await runSeg(frame);
+		const tSeg = Math.round(performance.now() - t);
+
+		t = performance.now();
 		const depthOut = await runDepth(frame);
+		const tDepth = Math.round(performance.now() - t);
 		const depthMap = Object.values(depthOut)[0];
 
 		// The semantic model runs every SEM_EVERY cycles. Its class map and ground state are reused in between.
 		const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
+		let tSem = null;
 		if (fresh) {
+			t = performance.now();
 			const semOut = await runSem(frame);
+			tSem = Math.round(performance.now() - t);
 			lastSemMap = Object.values(semOut)[0];
 			lastGround = analyzeSem(lastSemMap, depthMap);
 		}
@@ -98,10 +96,18 @@ async function inferOnce() {
 		handleAlert(alert);
 		drawOverlay(video, lastSemMap, alert.focus);
 
+		const backend = getBackend();
+		const semText = tSem === null ? "sem skipped" : `sem ${tSem} ms`;
+		console.log("timing", backend, {
+			seg: tSeg,
+			depth: tDepth,
+			sem: tSem,
+			total: ms,
+		});
+
 		status.textContent =
-			`[${BUILD} ${getBackend()}]` +
-			` Alert: "${alert.text}" | 
-			${describeGround(lastGround)} | ${ms} ms`;
+			`[${BUILD} ${backend}] Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)} | ` +
+			`seg ${tSeg} ms, depth ${tDepth} ms, ${semText}, total ${ms} ms`;
 	} catch (err) {
 		status.textContent = `[${BUILD}] Inference error: ${err.message}`;
 	} finally {
@@ -134,7 +140,7 @@ button.addEventListener("click", async () => {
 			lastGround = null;
 			lastSemMap = null;
 			status.textContent = `[${BUILD}] Starting camera…`;
-			camInfo = await startCamera(video);
+			await startCamera(video);
 			status.textContent = `[${BUILD}] Loading models…`;
 			await loadModels();
 			running = true;
