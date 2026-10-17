@@ -26,8 +26,11 @@ export const MOVING_CLASSES = new Set([
 export const WALKABLE_IDS = new Set([3, 11, 52]); // floor, sidewalk, pathway
 export const WARNING_IDS = new Set([6, 9, 13, 46]); // road, grass, earth, sand
 export const HAZARD_IDS = new Set([53, 59, 121]); // stairs, stairway, step
-export const DOOR_ID = 14;
-export const WALL_ID = 0;
+export const DOOR_IDS = new Set([14, 58]); // door, screen door
+export const STRUCTURE_IDS = new Set([0, 1]); // wall, building
+export const STRUCTURE_NAMES = { 0: "wall", 1: "building" };
+export const DOOR_ID = 14; // kept for compatibility
+export const WALL_ID = 0; // kept for compatibility
 
 // Spoken names for ground classes, and which ones count as sidewalk-type walkable ground.
 export const SURFACE_NAMES = {
@@ -44,23 +47,23 @@ export const WALKABLE_NAMES = new Set(["floor", "sidewalk", "path"]);
 // Ground bands, as fractions of frame height.
 export const STAND_TOP = 0.85; // bottom 15%: the surface under the user
 export const AHEAD_TOP = 0.55; // 55% to 85%: the surface ahead
-export const WALL_TOP = 0.5; // walls count from the middle of the frame down, center only
+export const WALL_TOP = 0.5; // structures count from the middle of the frame down, center only
 export const SURFACE_MIN_PCT = 25; // a band counts as one surface if it covers this much of the band
 export const SURFACE_CONFIRM = 2; // fresh readings in a row before a surface change is accepted
 
 // Distance words, in meters from the depth model.
 // CLOSE_M matches the cane's reach (about 1.5 m) plus a margin.
 export const CLOSE_M = 3; // under this: urgent, and blocks a side for steering
-export const NEAR_M = 6; // 3 to 6 m: announced, no direction
+export const NEAR_M = 6; // 3 to 6 m: moving objects block; other objects are announced
 
 // Alert ranges, in meters.
 export const STAIRS_M = 9; // stairs warn from this far
 export const DOOR_M = 6; // doors, center and side
 export const SURFACE_M = 9; // surfaces ahead
-export const WALL_PATH_M = 3; // a wall this close in the path is urgent
-export const WALL_NEAR_M = 6; // an approaching wall is announced within this range
+export const WALL_PATH_M = 3; // a wall or building this close in the center path is urgent
+export const WALL_NEAR_M = 6; // a wall or building approaching within this range gets a heads-up
 
-// A moving object or wall is "approaching" if it got this many meters closer since the last reading.
+// A moving object or structure is "approaching" if it got this many meters closer since the last reading.
 export const APPROACH_M = 0.3;
 
 // Ground thresholds, as percent of the frame or region.
@@ -68,7 +71,7 @@ export const OPEN_PCT = 15; // a side with this much floor and no blocker is "op
 export const NARROW_PCT = 5; // a side with this much floor is "narrow"
 export const HAZARD_PCT = 3; // stairs anywhere in the frame
 export const DOOR_PCT = 5; // door share of the frame, per zone
-export const WALL_PCT = 15; // wall share of the center path region
+export const WALL_PCT = 15; // structure share of the center path region
 
 // Processing and speech timing.
 export const SEM_EVERY = 2; // run the semantic model every Nth cycle; ground is reused in between

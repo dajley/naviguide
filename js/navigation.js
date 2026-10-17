@@ -39,9 +39,10 @@ let candidateCount = 0;
 let aheadConfirmed = null;
 let lastAheadName = null;
 let pendingStep = null; // surface just stepped onto, kept until it's spoken
-let wallHist = [];
-let prevWallSmooth = null;
-let wallInfo = { smooth: null, approaching: false };
+let structHist = [];
+let prevStructSmooth = null;
+let structName = "wall";
+let structInfo = { smooth: null, approaching: false, name: "wall" };
 
 // Obstacle state, carried across cycles.
 let approachStreak = new Map();
@@ -61,9 +62,10 @@ export function resetNavigation() {
 	aheadConfirmed = null;
 	lastAheadName = null;
 	pendingStep = null;
-	wallHist = [];
-	prevWallSmooth = null;
-	wallInfo = { smooth: null, approaching: false };
+	structHist = [];
+	prevStructSmooth = null;
+	structName = "wall";
+	structInfo = { smooth: null, approaching: false, name: "wall" };
 	approachStreak = new Map();
 	clearObstacleState();
 	wasObstacle = false;
@@ -110,8 +112,7 @@ function updateGround(ground) {
 			candidateCount = 1;
 		}
 		if (candidateCount >= needed) {
-			// A confirmed change is announced once it can be spoken, even if an obstacle
-			// was active when the change happened. It's dropped only if the user moves on.
+			// A confirmed change is announced once it can be spoken. It's dropped only if the user moves on.
 			if (currentSurface !== null) pendingStep = seen;
 			currentSurface = seen;
 			candidateSurface = null;
@@ -134,20 +135,22 @@ function updateGround(ground) {
 			: null;
 	if (aheadConfirmed) lastAheadName = aheadConfirmed.name;
 
-	// Wall in the path: median of the last 3 readings, to ignore depth noise.
+	// Structure (wall or building) in the center path: median of the last 3 readings.
+	if (ground.structName) structName = ground.structName;
 	const m = ground.wallPct >= WALL_PCT ? ground.wallM : null;
-	wallHist.push(m);
-	if (wallHist.length > 3) wallHist.shift();
-	const vals = wallHist.filter((v) => v != null).sort((a, b) => a - b);
+	structHist.push(m);
+	if (structHist.length > 3) structHist.shift();
+	const vals = structHist.filter((v) => v != null).sort((a, b) => a - b);
 	const smooth = vals.length ? vals[Math.floor(vals.length / 2)] : null;
-	wallInfo = {
+	structInfo = {
 		smooth,
+		name: structName,
 		approaching:
 			smooth != null &&
-			prevWallSmooth != null &&
-			prevWallSmooth - smooth >= APPROACH_M,
+			prevStructSmooth != null &&
+			prevStructSmooth - smooth >= APPROACH_M,
 	};
-	prevWallSmooth = smooth;
+	prevStructSmooth = smooth;
 }
 
 // Approach must show for APPROACH_CONFIRM readings in a row before it counts.
@@ -175,67 +178,63 @@ function zonesOverlapped(box) {
 }
 
 // Everything that could be announced, ranked by priority. Lower rank wins.
-//   0  moving object approaching, under NEAR_M               (blocks the path)
-//   1  moving object under CLOSE_M                           (blocks the path)
-//   2  general obstacle under CLOSE_M                        (blocks the path)
-//   3  wall in the path, close or approaching                (blocks the path)
-//   4  moving object at CLOSE_M to NEAR_M, not approaching   (announced only)
-//   5  general obstacle in the center, CLOSE_M to NEAR_M     (announced only)
-function collectCandidates(dets, wallM, wallApproaching) {
+//   0  moving object approaching, under NEAR_M                  (blocks)
+//   1  moving object under NEAR_M, not approaching              (blocks)
+//   2  general obstacle under CLOSE_M                           (blocks)
+//   3  wall or building in the center, under CLOSE_M            (blocks)
+//   4  general obstacle in the center, CLOSE_M to NEAR_M        (announced only)
+//   5  general obstacle at the side, CLOSE_M to NEAR_M          (announced only)
+//   6  wall or building heads-up, CLOSE_M to NEAR_M, approaching (announced only)
+function collectCandidates(dets, struct) {
 	const list = [];
 	for (const d of dets) {
 		if (d.kind === "moving") {
 			if (d.meters >= NEAR_M) continue;
-			const rank = d.stableApproach ? 0 : d.meters < CLOSE_M ? 1 : 4;
 			list.push({
 				id: `${d.label}:${d.zone}`,
 				name: d.label,
-				rank,
+				rank: d.stableApproach ? 0 : 1,
 				meters: d.meters,
 				zone: d.zone,
 				zones: zonesOverlapped(d.box),
 				approaching: !!d.stableApproach,
-				blocks: rank <= 1,
-			});
-		} else if (d.meters < CLOSE_M) {
-			list.push({
-				id: `obstacle:${d.zone}`,
-				name: "obstacle",
-				rank: 2,
-				meters: d.meters,
-				zone: d.zone,
-				zones: zonesOverlapped(d.box),
-				approaching: false,
 				blocks: true,
+				structure: false,
 			});
-		} else if (d.zone === "center" && d.meters < NEAR_M) {
+		} else if (d.meters < NEAR_M) {
+			const close = d.meters < CLOSE_M;
 			list.push({
-				id: `obstacle:${d.zone}`,
+				id: `obstacle:${d.zone}:${close ? "c" : "n"}`,
 				name: "obstacle",
-				rank: 5,
+				rank: close ? 2 : d.zone === "center" ? 4 : 5,
 				meters: d.meters,
 				zone: d.zone,
 				zones: zonesOverlapped(d.box),
 				approaching: false,
-				blocks: false,
+				blocks: close,
+				structure: false,
 			});
 		}
 	}
-	if (
-		wallM != null &&
-		(wallM <= WALL_PATH_M || (wallApproaching && wallM <= WALL_NEAR_M))
-	) {
-		list.push({
-			id: "wall",
-			name: "wall",
-			rank: 3,
-			meters: wallM,
+
+	const sm = struct.smooth;
+	if (sm != null) {
+		const base = {
+			id: `structure:${struct.name}`,
+			name: struct.name,
+			meters: sm,
 			zone: "center",
 			zones: ["center"],
-			approaching: wallApproaching,
-			blocks: true,
-		});
+			approaching: struct.approaching,
+			structure: true,
+		};
+		if (sm < WALL_PATH_M) {
+			list.push({ ...base, rank: 3, blocks: true });
+		} else if (struct.approaching && sm <= WALL_NEAR_M) {
+			list.push({ ...base, rank: 6, blocks: false });
+		}
 	}
+
 	return list.sort((a, b) => a.rank - b.rank || a.meters - b.meters);
 }
 
@@ -255,7 +254,7 @@ function pickLead(candidates) {
 	}
 	if (lead && top.id !== lead.id) {
 		const preempt = lead.last.blocks
-			? top.rank <= 1 && top.rank < lead.last.rank
+			? top.blocks && top.rank < lead.last.rank
 			: top.blocks;
 		if (preempt) lead = null;
 	}
@@ -369,11 +368,10 @@ function clearObstacleState() {
 	resetAction();
 }
 
-// Phrases for one object, with its distance.
+// Phrase for one object, with its distance.
 function phraseOf(c) {
 	const dist = spokenDistance(c.meters);
-	if (c.name === "wall")
-		return `Wall ${c.approaching ? "approaching" : "ahead"}, ${dist}`;
+	if (c.structure) return `${cap(c.name)} ahead, ${dist}`;
 	if (c.approaching)
 		return `${cap(c.name)} approaching, ${where(c.zone)}, ${dist}`;
 	return `${cap(c.name)} ${where(c.zone)}, ${dist}`;
@@ -381,7 +379,7 @@ function phraseOf(c) {
 
 // Short phrase for reminders, without the distance.
 function reminderOf(c) {
-	if (c.name === "wall") return "Wall still ahead";
+	if (c.structure) return `${cap(c.name)} still ahead`;
 	return `${cap(c.name)} still ${where(c.zone)}`;
 }
 
@@ -405,17 +403,21 @@ function obstacleAlert(candidates, ground) {
 		: [];
 	const rawAction = L.blocks ? multiAction(dirBlockers, ground) : null;
 
-	// Stop: an approaching object in the center path that is close, or leaves no clear side.
+	// Stop: an approaching person or moving object in the center path that is close or
+	// leaves no clear side, or a wall or building under CLOSE_M with no clear side.
 	const wasStop = stopActive;
 	const centerLead = L.blocks && L.zones.includes("center");
-	stopActive =
+	const personStop =
 		L.rank === 0 &&
 		centerLead &&
 		(wasStop || L.meters < CLOSE_M || rawAction === "Stop");
+	const structStop =
+		L.structure && L.blocks && L.meters < CLOSE_M && rawAction === "Stop";
+	stopActive = personStop || structStop;
 	const stopping = stopActive;
 	const newStop = stopping && !wasStop;
 
-	// Newly close: interrupts once, when the lead first comes within CLOSE_M.
+	// Newly close: marks the moment the lead first comes within CLOSE_M.
 	const isClose = L.blocks && L.meters < CLOSE_M;
 	const newlyClose = isClose && !lead.wasClose;
 	lead.wasClose = isClose;
@@ -424,8 +426,15 @@ function obstacleAlert(candidates, ground) {
 	if (!L.blocks) secondSeen = new Map();
 
 	let action = null;
-	if (L.blocks) action = stopping ? "Stop" : stableAction(rawAction);
-	else resetAction();
+	if (L.blocks) {
+		action = stopping ? "Stop" : stableAction(rawAction);
+		// A wall or building is passed by turning, not by stepping sideways.
+		if (L.structure && action && action.startsWith("Move ")) {
+			action = action.replace("Move ", "Turn ");
+		}
+	} else {
+		resetAction();
+	}
 
 	wasObstacle = true;
 	announcedClear = false;
@@ -450,9 +459,10 @@ function obstacleAlert(candidates, ground) {
 	// The key changes when the situation changes, so a new message is spoken.
 	// While a stop continues, it changes only when the object crosses a whole meter.
 	const band = L.meters < CLOSE_M ? "c" : Math.floor(L.meters);
+	const approachFlag = L.structure ? 0 : L.approaching ? 1 : 0;
 	const key = stopping
 		? `stop:${L.id}:${useSecond ? second.id : ""}:${band}`
-		: `lead:${L.id}:${L.blocks ? 1 : 0}:${L.approaching ? 1 : 0}:${action ?? ""}`;
+		: `lead:${L.id}:${L.blocks ? 1 : 0}:${approachFlag}:${action ?? ""}`;
 
 	return {
 		key,
@@ -464,7 +474,7 @@ function obstacleAlert(candidates, ground) {
 }
 
 // Door alert. A center door comes first. A side door is named with its side.
-// Only doors within DOOR_M and above DOOR_PCT count.
+// Only doors within DOOR_M and above DOOR_PCT count. Both door classes are included.
 function doorAlert(ground) {
 	const zones = ground.doorZones;
 	if (!zones) return null;
@@ -502,12 +512,11 @@ function doorAlert(ground) {
 // fresh: true when the semantic model produced a new reading this cycle.
 // key: identifies the situation, so the same message isn't spoken again
 // text: what to say, or "" for nothing
-// interrupt: speak right away, cutting off anything being said
-// tier: 1 safety, 2 direction, 3 information
+// interrupt: flag kept for compatibility; speech no longer cuts off sentences
+// tier: 1 safety, 2 direction or heads-up, 3 information
 // reminder: shorter text spoken if the same situation continues
 export function decide(dets, ground, fresh = true) {
 	if (fresh) updateGround(ground);
-	const wall = wallInfo;
 	updateApproach(dets);
 
 	// Tier 1: stairs.
@@ -524,8 +533,8 @@ export function decide(dets, ground, fresh = true) {
 		};
 	}
 
-	// Tier 1 and 2: people, moving objects, general obstacles, and walls, as one lead alert.
-	const candidates = collectCandidates(dets, wall.smooth, wall.approaching);
+	// Tiers 1 and 2: people, moving objects, general obstacles, walls, and buildings, as one lead alert.
+	const candidates = collectCandidates(dets, structInfo);
 	if (candidates.length > 0) {
 		announcedClear = false;
 		return obstacleAlert(candidates, ground);

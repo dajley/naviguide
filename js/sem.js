@@ -2,8 +2,9 @@ import {
 	WALKABLE_IDS,
 	WARNING_IDS,
 	HAZARD_IDS,
-	DOOR_ID,
-	WALL_ID,
+	DOOR_IDS,
+	STRUCTURE_IDS,
+	STRUCTURE_NAMES,
 	SURFACE_NAMES,
 	STAND_TOP,
 	AHEAD_TOP,
@@ -76,8 +77,8 @@ export function analyzeSem(t, depthMap) {
 	let walk = 0,
 		hazard = 0,
 		door = 0,
-		wallRegion = 0,
-		wall = 0;
+		structRegion = 0,
+		structure = 0;
 	const bottom = {
 		left: 0,
 		center: 0,
@@ -92,15 +93,16 @@ export function analyzeSem(t, depthMap) {
 
 	const hHazard = newHist(),
 		hDoor = newHist(),
-		hWall = newHist();
+		hStruct = newHist();
 	let nHazard = 0,
 		nDoor = 0,
-		nWall = 0;
+		nStruct = 0;
 
 	const doorZ = { left: 0, center: 0, right: 0 };
 	const nDoorZ = { left: 0, center: 0, right: 0 };
 	const hDoorZ = { left: newHist(), center: newHist(), right: newHist() };
 
+	const structCounts = new Map();
 	const standCounts = new Map();
 	const aheadCounts = new Map();
 	const aheadHist = new Map();
@@ -118,19 +120,20 @@ export function analyzeSem(t, depthMap) {
 		} else if (HAZARD_IDS.has(id)) {
 			hazard++;
 			if (addDepth(hHazard, m)) nHazard++;
-		} else if (id === DOOR_ID) {
+		} else if (DOOR_IDS.has(id)) {
 			door++;
 			doorZ[zone]++;
 			if (addDepth(hDoor, m)) nDoor++;
 			if (addDepth(hDoorZ[zone], m)) nDoorZ[zone]++;
 		}
 
-		// Wall: the center path region, from the middle of the frame down.
+		// Structure (wall or building): the center path region, from the middle of the frame down.
 		if (row >= WALL_START && zone === "center") {
-			wallRegion++;
-			if (id === WALL_ID) {
-				wall++;
-				if (addDepth(hWall, m)) nWall++;
+			structRegion++;
+			if (STRUCTURE_IDS.has(id)) {
+				structure++;
+				structCounts.set(id, (structCounts.get(id) || 0) + 1);
+				if (addDepth(hStruct, m)) nStruct++;
 			}
 		}
 
@@ -166,6 +169,16 @@ export function analyzeSem(t, depthMap) {
 		.map(([id, n]) => `${id}:${pct(n, total)}%`)
 		.join(" ");
 
+	// Whichever structure class covers more of the center path is the one named.
+	let structName = null;
+	let bestStruct = 0;
+	for (const [id, n] of structCounts) {
+		if (n > bestStruct) {
+			bestStruct = n;
+			structName = STRUCTURE_NAMES[id];
+		}
+	}
+
 	const standId = dominant(standCounts, (SIZE - STAND_START) * SIZE);
 	const aheadId = dominant(aheadCounts, (STAND_START - AHEAD_START) * SIZE);
 	const aheadNum = aheadId !== null ? aheadN.get(aheadId) || 0 : 0;
@@ -181,10 +194,11 @@ export function analyzeSem(t, depthMap) {
 	return {
 		hazardPct: pct(hazard, total),
 		doorPct: pct(door, total),
-		wallPct: pct(wall, wallRegion),
+		wallPct: pct(structure, structRegion),
 		hazardM: nearest(hHazard, nHazard),
 		doorM: nearest(hDoor, nDoor),
-		wallM: nearest(hWall, nWall),
+		wallM: nearest(hStruct, nStruct),
+		structName,
 		doorZones,
 		bottomWalkZones: {
 			left: pct(bottom.left, bottom.total),
