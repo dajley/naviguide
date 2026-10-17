@@ -12,7 +12,7 @@ import { drawOverlay, clearOverlay } from "./overlay.js";
 import { updateGeometry } from "./geometry.js";
 
 // Shown in start and error messages so you can tell which build is running.
-const BUILD = "parallel-1";
+const BUILD = "sequential-1";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -71,16 +71,13 @@ async function inferOnce() {
 		updateGeometry(video.videoWidth, video.videoHeight);
 		const frame = frameToTensor(video);
 
+		// The models run one after another. ONNX Runtime web does not allow overlapping runs across sessions.
+		const seg = await timed(() => runSeg(frame));
+		const depth = await timed(() => runDepth(frame));
+
 		// The semantic model runs every SEM_EVERY cycles. Its class map and ground state are reused in between.
 		const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
-
-		// All three start together. Segmentation and depth run on the GPU, the semantic model on the CPU,
-		// so the CPU work overlaps the GPU work. A null entry means the semantic model was skipped this pass.
-		const [seg, depth, sem] = await Promise.all([
-			timed(() => runSeg(frame)),
-			timed(() => runDepth(frame)),
-			fresh ? timed(() => runSem(frame)) : null,
-		]);
+		const sem = fresh ? await timed(() => runSem(frame)) : null;
 
 		const depthMap = Object.values(depth.out)[0];
 		if (sem) {
