@@ -63,7 +63,9 @@ export function getBackend() {
 }
 
 function input(data) {
-	return new ort.Tensor("float32", data, [1, 3, 640, 640]);
+	// Each model gets its own copy. In worker mode the data is moved to the worker, which
+	// would leave an empty array for the next model.
+	return new ort.Tensor("float32", new Float32Array(data), [1, 3, 640, 640]);
 }
 
 export async function runSeg(data) {
