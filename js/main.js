@@ -11,9 +11,6 @@ import { SEM_EVERY } from "./config.js";
 import { drawOverlay, clearOverlay } from "./overlay.js";
 import { updateGeometry } from "./geometry.js";
 
-// Shown in start and error messages so you can tell which build is running.
-const BUILD = "upright-1";
-
 // Spoken as a safety message while the phone is held sideways.
 const UPRIGHT_MSG = "Hold your phone upright.";
 
@@ -69,11 +66,6 @@ function isHorizontal() {
 	if (type) return type.startsWith("landscape");
 	return window.innerWidth > window.innerHeight;
 }
-function isVertical() {
-	const type = screen.orientation?.type;
-	if (type) return type.startsWith("portrait");
-	return window.innerHeight >= window.innerWidth;
-}
 
 // Runs one model and returns its output along with how long it took.
 async function timed(run) {
@@ -86,9 +78,8 @@ async function inferOnce() {
 	busy = true;
 	try {
 		const t0 = performance.now();
-		// Turn the frame upright when the phone is upright but the camera gives a landscape frame.
-		const turn = false;
-		const frame = frameToTensor(video, turn);
+		updateGeometry(video.videoWidth, video.videoHeight);
+		const frame = frameToTensor(video);
 
 		// The models run one after another. ONNX Runtime web does not allow overlapping runs across sessions.
 		const seg = await timed(() => runSeg(frame));
@@ -126,10 +117,10 @@ async function inferOnce() {
 			};
 		}
 		handleAlert(alert);
-		drawOverlay(video, lastSemMap, alert.focus, turn);
+		drawOverlay(video, lastSemMap, alert.focus);
 
+		// Timings and the backend go to the console. The status line stays focused on navigation.
 		const backend = getBackend();
-		const semText = sem === null ? "sem skipped" : `sem ${sem.ms} ms`;
 		console.log("timing", backend, {
 			seg: seg.ms,
 			depth: depth.ms,
@@ -137,11 +128,9 @@ async function inferOnce() {
 			total: ms,
 		});
 
-		status.textContent =
-			`[${BUILD} ${backend}] Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)} | ` +
-			`seg ${seg.ms} ms, depth ${depth.ms} ms, ${semText}, total ${ms} ms`;
+		status.textContent = `Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)}`;
 	} catch (err) {
-		status.textContent = `[${BUILD}] Inference error: ${err.message}`;
+		status.textContent = `Inference error: ${err.message}`;
 	} finally {
 		busy = false;
 	}
@@ -171,9 +160,9 @@ button.addEventListener("click", async () => {
 			cycle = 0;
 			lastGround = null;
 			lastSemMap = null;
-			status.textContent = `[${BUILD}] Starting camera…`;
+			status.textContent = "Starting camera…";
 			await startCamera(video);
-			status.textContent = `[${BUILD}] Loading models…`;
+			status.textContent = "Loading models…";
 			await loadModels();
 			running = true;
 			loopId++;
@@ -186,10 +175,10 @@ button.addEventListener("click", async () => {
 			stopCamera(video);
 			clearOverlay();
 			button.textContent = "Start";
-			status.textContent = `[${BUILD}] Camera off.`;
+			status.textContent = "Camera off.";
 		}
 	} catch (err) {
-		status.textContent = `[${BUILD}] Error: ${err.name}. ${err.message}`;
+		status.textContent = `Error: ${err.name}. ${err.message}`;
 	} finally {
 		button.disabled = false;
 	}

@@ -72,6 +72,8 @@ export function resetNavigation() {
 // Called by alerts.js once the "You are now on X" message has actually been spoken.
 export function confirmSpoken(key) {
 	if (pendingStep && key === `on:${pendingStep}`) pendingStep = null;
+	// "Path clear" counts as done only once it has actually been spoken.
+	if (key === "clear:path") wasObstacle = false;
 }
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -538,6 +540,19 @@ function decideAlert(dets, ground, fresh) {
 	}
 	clearObstacleState();
 
+	// Tier 2: an obstacle just ended. "Path clear" stays pending until it's spoken,
+	// and outranks doors and surfaces. A new obstacle still replaces it.
+	if (wasObstacle) {
+		announcedClear = true;
+		return {
+			key: "clear:path",
+			text: "Path clear.",
+			interrupt: false,
+			tier: 2,
+			reminder: null,
+		};
+	}
+
 	// Tier 3: a surface change you've stepped onto. Stays pending until it's spoken,
 	// and is dropped only if you've moved onto a different surface.
 	if (pendingStep && pendingStep === currentSurface) {
@@ -575,19 +590,7 @@ function decideAlert(dets, ground, fresh) {
 		};
 	}
 
-	// Tier 2: clear. "Path clear" once after an obstacle, "Keep straight" once at the start.
-	const wasOb = wasObstacle;
-	wasObstacle = false;
-	if (wasOb) {
-		announcedClear = true;
-		return {
-			key: "clear",
-			text: "Path clear.",
-			interrupt: false,
-			tier: 2,
-			reminder: null,
-		};
-	}
+	// Tier 2: clear. "Keep straight" once at the start. After that, "Continue path" is shown silently.
 	if (!announcedClear) {
 		announcedClear = true;
 		return {
@@ -598,7 +601,15 @@ function decideAlert(dets, ground, fresh) {
 			reminder: null,
 		};
 	}
-	return { key: "clear", text: "", interrupt: false, tier: 2, reminder: null };
+	// Nothing new to say. Shown on the status line only, never spoken.
+	return {
+		key: "clear",
+		text: "Continue path.",
+		silent: true,
+		interrupt: false,
+		tier: 2,
+		reminder: null,
+	};
 }
 
 // What the screen should highlight for this alert. Walkable surfaces are always tinted by
@@ -648,6 +659,9 @@ export function decide(dets, ground, fresh = true) {
 	const alert = decideAlert(dets, ground, fresh);
 	alert.focus = focusFor(alert.key);
 	alert.topic = topicFor(alert.key);
-	alert.safety = !!alert.interrupt || alert.key.startsWith("on:");
+	alert.safety =
+		!!alert.interrupt ||
+		alert.key.startsWith("on:") ||
+		alert.key === "clear:path";
 	return alert;
 }

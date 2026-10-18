@@ -1,4 +1,4 @@
-// Classes the spec treats as moving obstacles. Their names are announced.
+// Classes treated as moving obstacles. Their names are announced.
 // Any other class is a general obstacle, announced without a name.
 export const MOVING_CLASSES = new Set([
 	"person",
@@ -29,10 +29,8 @@ export const HAZARD_IDS = new Set([53, 59, 121]); // stairs, stairway, step
 export const DOOR_IDS = new Set([14, 58]); // door, screen door
 export const STRUCTURE_IDS = new Set([0, 1]); // wall, building
 export const STRUCTURE_NAMES = { 0: "wall", 1: "building" };
-export const DOOR_ID = 14; // kept for compatibility
-export const WALL_ID = 0; // kept for compatibility
 
-// Spoken names for ground classes, and which ones count as sidewalk-type walkable ground.
+// Spoken names for ground classes, and which ones count as walkable ground.
 export const SURFACE_NAMES = {
 	3: "floor",
 	11: "sidewalk",

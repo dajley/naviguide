@@ -89,14 +89,3 @@ export function speakText(text) {
 export function say(text) {
 	return speakText(text);
 }
-
-// Lists the English voices this device offers, for choosing one later.
-export function listVoices() {
-	return speechSynthesis
-		.getVoices()
-		.filter((v) => v.lang.startsWith("en"))
-		.map(
-			(v) =>
-				`${v.name} (${v.lang}, ${v.localService ? "offline" : "network"}${v.default ? ", default" : ""})`,
-		);
-}

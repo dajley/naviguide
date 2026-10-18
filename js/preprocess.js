@@ -1,4 +1,4 @@
-import { MODEL, TURN, geometry } from "./geometry.js";
+import { MODEL, geometry } from "./geometry.js";
 
 const canvas = document.createElement("canvas");
 canvas.width = MODEL;
@@ -6,35 +6,24 @@ canvas.height = MODEL;
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
 const PAD = "rgb(114,114,114)"; // the gray padding YOLO models expect
 
-// Letterboxes the frame into the model's square input: scaled to fit, centered, padded with gray.
-// When turn is true, the frame is rotated upright first. updateGeometry must be called with the
-// upright frame's size (width and height swapped when turn is true) before this runs.
+// Letterboxes the camera frame into the model's square input: scaled to fit, centered, padded
+// with gray. updateGeometry must be called with the frame's size before this runs.
 // Returns a Float32Array in NCHW layout (1 x 3 x 640 x 640), values 0 to 1.
-export function frameToTensor(videoEl, turn = false) {
+export function frameToTensor(videoEl) {
 	const g = geometry();
 	ctx.fillStyle = PAD;
 	ctx.fillRect(0, 0, MODEL, MODEL);
-
-	if (turn) {
-		ctx.save();
-		ctx.translate(g.x0 + g.cw / 2, g.y0 + g.ch / 2);
-		ctx.rotate(TURN);
-		// Drawn at the landscape size, then turned, so it fills the upright box.
-		ctx.drawImage(videoEl, -g.ch / 2, -g.cw / 2, g.ch, g.cw);
-		ctx.restore();
-	} else {
-		ctx.drawImage(
-			videoEl,
-			0,
-			0,
-			videoEl.videoWidth,
-			videoEl.videoHeight,
-			g.x0,
-			g.y0,
-			g.cw,
-			g.ch,
-		);
-	}
+	ctx.drawImage(
+		videoEl,
+		0,
+		0,
+		videoEl.videoWidth,
+		videoEl.videoHeight,
+		g.x0,
+		g.y0,
+		g.cw,
+		g.ch,
+	);
 
 	const { data } = ctx.getImageData(0, 0, MODEL, MODEL);
 	const n = MODEL * MODEL;

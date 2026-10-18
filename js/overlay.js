@@ -5,7 +5,7 @@ import {
 	DOOR_IDS,
 	STRUCTURE_IDS,
 } from "./config.js";
-import { MODEL, TURN, geometry } from "./geometry.js";
+import { MODEL, geometry } from "./geometry.js";
 
 const CAT_WALK = 1;
 const CAT_WARN = 2;
@@ -43,8 +43,8 @@ const STYLE = {
 };
 const OBJECT_RGB = { moving: [255, 140, 0], general: [170, 80, 255] };
 
-// The one canvas the user sees. It holds the upright camera picture, with the overlay drawn on
-// top. The <video> element is only a source and is kept out of sight (see styles.css).
+// The one canvas the user sees. It holds the camera picture, with the overlay drawn on top.
+// The <video> element is only a source and is kept out of sight (see styles.css).
 const canvas = document.getElementById("overlay");
 const ctx = canvas.getContext("2d");
 
@@ -56,49 +56,19 @@ const groundCtx = groundCanvas.getContext("2d");
 const groundImage = groundCtx.createImageData(MODEL, MODEL);
 const catMap = new Uint8Array(MODEL * MODEL);
 
-let visible = true;
-
 // Smoothed lead box, kept between frames. Reset when the lead changes or disappears.
 let leadBox = null;
 let leadKey = null;
-
-export function overlayVisible() {
-	return visible;
-}
-
-// Hides or shows the colored overlay only. The camera picture stays on screen either way.
-export function setOverlayVisible(v) {
-	visible = v;
-	if (!v) resetLead();
-}
-
-// Resets the smoothed lead box. The picture is redrawn every frame, so nothing else needs clearing.
-export function clearOverlay() {
-	resetLead();
-}
 
 function resetLead() {
 	leadBox = null;
 	leadKey = null;
 }
 
-// Draws the camera frame onto the canvas, turned upright when needed. The canvas is already the
-// upright size. When turned, the video is drawn at its own size, centered, then rotated by TURN.
-function drawFrame(video, turn, vw, vh) {
-	const uw = canvas.width;
-	const uh = canvas.height;
-	ctx.save();
-	if (turn) {
-		ctx.translate(uw / 2, uh / 2);
-		ctx.rotate(TURN);
-		ctx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
-	} else {
-		ctx.drawImage(video, 0, 0, uw, uh);
-	}
-	ctx.fillStyle = "#ff0000";
-	ctx.font = `bold ${Math.round(vh * 0.08)}px sans-serif`;
-	ctx.fillText("TOP", -vw / 2 + 20, -vh / 2 + vh * 0.1);
-	ctx.restore();
+// Clears the picture when the camera stops, so the screen returns to its empty state.
+export function clearOverlay() {
+	ctx.clearRect(0, 0, canvas.width, canvas.height);
+	resetLead();
 }
 
 // Colors the class map. Walkable surfaces are always shown. Other categories are shown only
@@ -142,29 +112,29 @@ function smoothLeadBox(obj) {
 }
 
 // Highlights the lead object with a translucent fill, a soft white outline, and a small label.
-// Coordinates are mapped from the model's letterboxed square to the upright picture.
-function drawLead(obj, g, uw, uh) {
-	const sx = uw / g.cw;
-	const sy = uh / g.ch;
+// Coordinates are mapped from the model's letterboxed square to the camera picture (w x h).
+function drawLead(obj, g, w, h) {
+	const sx = w / g.cw;
+	const sy = h / g.ch;
 	const [x1, y1, x2, y2] = smoothLeadBox(obj);
 	const x = (x1 - g.x0) * sx;
 	const y = (y1 - g.y0) * sy;
-	const w = (x2 - x1) * sx;
-	const h = (y2 - y1) * sy;
+	const bw = (x2 - x1) * sx;
+	const bh = (y2 - y1) * sy;
 	const [r, gg, b] = obj.moving ? OBJECT_RGB.moving : OBJECT_RGB.general;
-	const lw = Math.max(4, Math.round(uh * 0.008));
+	const lw = Math.max(4, Math.round(h * 0.008));
 
 	ctx.save();
 	ctx.fillStyle = `rgba(${r}, ${gg}, ${b}, 0.28)`;
-	ctx.fillRect(x, y, w, h);
+	ctx.fillRect(x, y, bw, bh);
 	ctx.strokeStyle = "#ffffff";
 	ctx.lineWidth = lw;
 	ctx.shadowColor = "rgba(255, 255, 255, 0.9)";
 	ctx.shadowBlur = lw * 2;
-	ctx.strokeRect(x, y, w, h);
+	ctx.strokeRect(x, y, bw, bh);
 	ctx.restore();
 
-	const fs = Math.max(12, Math.round(uh * 0.03));
+	const fs = Math.max(12, Math.round(h * 0.03));
 	const text = `${obj.name} ${obj.meters.toFixed(1)}m`;
 	ctx.font = `600 ${fs}px system-ui, sans-serif`;
 	ctx.textBaseline = "top";
@@ -180,27 +150,19 @@ function drawLead(obj, g, uw, uh) {
 // Draws the camera picture, with the overlay on top, onto the one visible canvas.
 // classTensor: the most recent class map (may be a few cycles old), or null before the first.
 // focus: what the current alert is about, from navigation.js, or null.
-// turn: true when the frame was turned upright for the models.
-export function drawOverlay(video, classTensor, focus, turn = false) {
-	const vw = video.videoWidth;
-	const vh = video.videoHeight;
-	if (!vw || !vh) return;
-
-	// The upright picture is the camera frame with width and height swapped when turned.
-	const uw = turn ? vh : vw;
-	const uh = turn ? vw : vh;
-	if (canvas.width !== uw || canvas.height !== uh) {
-		canvas.width = uw;
-		canvas.height = uh;
+export function drawOverlay(video, classTensor, focus) {
+	const w = video.videoWidth;
+	const h = video.videoHeight;
+	if (!w || !h) return;
+	if (canvas.width !== w || canvas.height !== h) {
+		canvas.width = w;
+		canvas.height = h;
 	}
 
-	// The picture always shows, even before the first class map or when the overlay is hidden.
-	drawFrame(video, turn, vw, vh);
-	ctx.font = "16px system-ui, sans-serif";
-	ctx.fillStyle = "#ff0";
-	ctx.fillText(`${vw}x${vh} turn=${turn}`, 8, 22);
+	// The camera picture always shows, even before the first class map.
+	ctx.drawImage(video, 0, 0, w, h);
 
-	if (!visible || !classTensor) {
+	if (!classTensor) {
 		resetLead();
 		return;
 	}
@@ -212,7 +174,7 @@ export function drawOverlay(video, classTensor, focus, turn = false) {
 		(focus?.cats ?? []).map((name) => CAT_BY_NAME[name]).filter(Boolean),
 	);
 	drawGround(classTensor, active);
-	ctx.drawImage(groundCanvas, g.x0, g.y0, g.cw, g.ch, 0, 0, uw, uh);
+	ctx.drawImage(groundCanvas, g.x0, g.y0, g.cw, g.ch, 0, 0, w, h);
 
-	if (focus?.object) drawLead(focus.object, g, uw, uh);
+	if (focus?.object) drawLead(focus.object, g, w, h);
 }

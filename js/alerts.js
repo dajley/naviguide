@@ -36,7 +36,8 @@ function attempt() {
 		if (queued.tier === 3) lastInfoAt = now;
 		lastSpokenAt = now;
 		if (queued.topic) lastTopicAt.set(queued.topic, now);
-		if (queued.key.startsWith("on:")) confirmSpoken(queued.key);
+		if (queued.key.startsWith("on:") || queued.key === "clear:path")
+			confirmSpoken(queued.key);
 		queued = null;
 	}
 }
