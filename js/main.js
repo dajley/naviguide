@@ -69,6 +69,11 @@ function isHorizontal() {
 	if (type) return type.startsWith("landscape");
 	return window.innerWidth > window.innerHeight;
 }
+function isVertical() {
+	const type = screen.orientation?.type;
+	if (type) return type.startsWith("portrait");
+	return window.innerHeight >= window.innerWidth;
+}
 
 // Runs one model and returns its output along with how long it took.
 async function timed(run) {
@@ -82,7 +87,7 @@ async function inferOnce() {
 	try {
 		const t0 = performance.now();
 		// Turn the frame upright when the phone is upright but the camera gives a landscape frame.
-		const turn = !isHorizontal() && video.videoWidth > video.videoHeight;
+		const turn = isVertical() && video.videoWidth > video.videoHeight;
 		updateGeometry(
 			turn ? video.videoHeight : video.videoWidth,
 			turn ? video.videoWidth : video.videoHeight,
