@@ -8,7 +8,7 @@ import { decide, markApproaching, resetNavigation } from "./navigation.js";
 import { unlockSpeech, say } from "./speech.js";
 import { handleAlert, resetAlerts } from "./alerts.js";
 import { SEM_EVERY } from "./config.js";
-import { drawOverlay, clearOverlay } from "./overlay.js";
+import { setOverlay, startDisplay, stopDisplay } from "./overlay.js";
 import { updateGeometry } from "./geometry.js";
 
 // Spoken as a safety message while the phone is held sideways.
@@ -117,7 +117,7 @@ async function inferOnce() {
 			};
 		}
 		handleAlert(alert);
-		drawOverlay(video, lastSemMap, alert.focus);
+		setOverlay(lastSemMap, alert.focus);
 
 		// Timings and the backend go to the console. The status line stays focused on navigation.
 		const backend = getBackend();
@@ -162,6 +162,7 @@ button.addEventListener("click", async () => {
 			lastSemMap = null;
 			status.textContent = "Starting camera…";
 			await startCamera(video);
+			startDisplay(video);
 			status.textContent = "Loading models…";
 			await loadModels();
 			running = true;
@@ -173,7 +174,7 @@ button.addEventListener("click", async () => {
 			running = false;
 			loopId++;
 			stopCamera(video);
-			clearOverlay();
+			stopDisplay();
 			button.textContent = "Start";
 			status.textContent = "Camera off.";
 		}

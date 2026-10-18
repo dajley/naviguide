@@ -20,8 +20,8 @@ const CAT_BY_NAME = {
 	structure: CAT_STRUCT,
 };
 
-// Display smoothing for the lead box only. Each frame moves the drawn box this fraction of the
-// way toward the new detection: lower is steadier but lags more, higher follows more closely.
+// Smoothing for the lead box. Each analysis pass moves the drawn box this fraction of the way
+// toward the new detection: lower is steadier but lags more, higher follows more closely.
 const LEAD_SMOOTH = 0.8;
 
 // Category lookup from class ID. 0 means the class isn't drawn.
@@ -56,7 +56,18 @@ const groundCtx = groundCanvas.getContext("2d");
 const groundImage = groundCtx.createImageData(MODEL, MODEL);
 const catMap = new Uint8Array(MODEL * MODEL);
 
-// Smoothed lead box, kept between frames. Reset when the lead changes or disappears.
+// The picture is redrawn on every screen frame, using the latest state set by setOverlay().
+// setOverlay() runs once per analysis pass, so the overlay can lag the picture slightly,
+// but the picture itself moves smoothly.
+let video = null;
+let running = false;
+let frameId = 0;
+let groundReady = false;
+let lastTensor = null;
+let lastActiveKey = "";
+let focusObject = null;
+
+// Smoothed lead box, kept between analysis passes. Reset when the lead changes or disappears.
 let leadBox = null;
 let leadKey = null;
 
@@ -65,8 +76,8 @@ function resetLead() {
 	leadKey = null;
 }
 
-// Clears the picture when the camera stops, so the screen returns to its empty state.
-export function clearOverlay() {
+// Clears the picture. Used when the display stops, so the screen returns to its empty state.
+function clearPicture() {
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 	resetLead();
 }
@@ -112,11 +123,11 @@ function smoothLeadBox(obj) {
 }
 
 // Highlights the lead object with a translucent fill, a soft white outline, and a small label.
-// Coordinates are mapped from the model's letterboxed square to the camera picture (w x h).
-function drawLead(obj, g, w, h) {
+// box is in model coordinates. It's mapped to the camera picture (w x h).
+function drawLead(obj, box, g, w, h) {
 	const sx = w / g.cw;
 	const sy = h / g.ch;
-	const [x1, y1, x2, y2] = smoothLeadBox(obj);
+	const [x1, y1, x2, y2] = box;
 	const x = (x1 - g.x0) * sx;
 	const y = (y1 - g.y0) * sy;
 	const bw = (x2 - x1) * sx;
@@ -147,10 +158,8 @@ function drawLead(obj, g, w, h) {
 	ctx.fillText(text, x + pad, top + pad);
 }
 
-// Draws the camera picture, with the overlay on top, onto the one visible canvas.
-// classTensor: the most recent class map (may be a few cycles old), or null before the first.
-// focus: what the current alert is about, from navigation.js, or null.
-export function drawOverlay(video, classTensor, focus) {
+// Draws one screen frame: the live camera picture, then the overlay from the latest analysis.
+function drawPicture() {
 	const w = video.videoWidth;
 	const h = video.videoHeight;
 	if (!w || !h) return;
@@ -159,22 +168,64 @@ export function drawOverlay(video, classTensor, focus) {
 		canvas.height = h;
 	}
 
-	// The camera picture always shows, even before the first class map.
 	ctx.drawImage(video, 0, 0, w, h);
 
-	if (!classTensor) {
-		resetLead();
-		return;
-	}
-	// No lead this frame: drop the smoothed box so the next lead starts clean.
-	if (!focus?.object) resetLead();
-
 	const g = geometry();
+	if (groundReady)
+		ctx.drawImage(groundCanvas, g.x0, g.y0, g.cw, g.ch, 0, 0, w, h);
+	if (focusObject && leadBox) drawLead(focusObject, leadBox, g, w, h);
+}
+
+// Redraws the picture on every screen frame until stopDisplay() is called.
+function frame() {
+	if (!running) return;
+	drawPicture();
+	frameId = requestAnimationFrame(frame);
+}
+
+// Starts showing the camera picture. Call once the camera is running.
+export function startDisplay(videoEl) {
+	video = videoEl;
+	running = true;
+	cancelAnimationFrame(frameId);
+	frame();
+}
+
+// Stops the picture and clears the screen, so it returns to its empty state.
+export function stopDisplay() {
+	running = false;
+	cancelAnimationFrame(frameId);
+	video = null;
+	groundReady = false;
+	lastTensor = null;
+	lastActiveKey = "";
+	focusObject = null;
+	clearPicture();
+}
+
+// Sets the overlay from the latest analysis pass. Called once per pass, not per screen frame.
+// classTensor: the most recent class map (may be a few passes old), or null before the first.
+// focus: what the current alert is about, from navigation.js, or null.
+export function setOverlay(classTensor, focus) {
 	const active = new Set(
 		(focus?.cats ?? []).map((name) => CAT_BY_NAME[name]).filter(Boolean),
 	);
-	drawGround(classTensor, active);
-	ctx.drawImage(groundCanvas, g.x0, g.y0, g.cw, g.ch, 0, 0, w, h);
+	const activeKey = [...active].sort().join(",");
 
-	if (focus?.object) drawLead(focus.object, g, w, h);
+	if (!classTensor) {
+		groundReady = false;
+		lastTensor = null;
+	} else if (classTensor !== lastTensor || activeKey !== lastActiveKey) {
+		drawGround(classTensor, active);
+		groundReady = true;
+		lastTensor = classTensor;
+		lastActiveKey = activeKey;
+	}
+
+	focusObject = focus?.object ?? null;
+	if (focusObject) {
+		smoothLeadBox(focusObject);
+	} else {
+		resetLead();
+	}
 }
