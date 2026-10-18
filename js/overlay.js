@@ -95,6 +95,9 @@ function drawFrame(video, turn, vw, vh) {
 	} else {
 		ctx.drawImage(video, 0, 0, uw, uh);
 	}
+	ctx.fillStyle = "#ff0000";
+	ctx.font = `bold ${Math.round(vh * 0.08)}px sans-serif`;
+	ctx.fillText("TOP", -vw / 2 + 20, -vh / 2 + vh * 0.1);
 	ctx.restore();
 }
 
