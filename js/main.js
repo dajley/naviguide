@@ -87,11 +87,7 @@ async function inferOnce() {
 	try {
 		const t0 = performance.now();
 		// Turn the frame upright when the phone is upright but the camera gives a landscape frame.
-		const turn = isVertical() && video.videoWidth > video.videoHeight;
-		updateGeometry(
-			turn ? video.videoHeight : video.videoWidth,
-			turn ? video.videoWidth : video.videoHeight,
-		);
+		const turn = false;
 		const frame = frameToTensor(video, turn);
 
 		// The models run one after another. ONNX Runtime web does not allow overlapping runs across sessions.
