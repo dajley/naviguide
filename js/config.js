@@ -46,8 +46,8 @@ export const SURFACE_NAMES = {
 export const WALKABLE_NAMES = new Set(["floor", "sidewalk", "path", "rug"]);
 
 // Ground bands, as fractions of frame height.
-export const STAND_TOP = 0.85; // bottom 15%: the surface under the user
-export const AHEAD_TOP = 0.55; // 55% to 85%: the surface ahead
+export const STAND_TOP = 0.95; // bottom 5%: the surface under the user
+export const AHEAD_TOP = 0.5; // 50% to 95%: the surface ahead
 export const WALL_TOP = 0.5; // structures count from the middle of the frame down, center only
 export const SURFACE_MIN_PCT = 25; // a band counts as one surface if it covers this much of the band
 export const SURFACE_CONFIRM = 2; // fresh readings in a row before a surface change is accepted
