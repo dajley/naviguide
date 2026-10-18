@@ -31,9 +31,6 @@ async function webgpuAvailable() {
 export async function loadModels() {
 	if (segSession && depthSession && semSession) return;
 
-	// Run the CPU models in a background worker, so the screen can keep drawing while they run.
-	ort.env.wasm.proxy = true;
-
 	let gpuOk = false;
 	if (!FORCE_CPU && (await webgpuAvailable())) {
 		try {
