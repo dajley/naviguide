@@ -12,7 +12,10 @@ import { drawOverlay, clearOverlay } from "./overlay.js";
 import { updateGeometry } from "./geometry.js";
 
 // Shown in start and error messages so you can tell which build is running.
-const BUILD = "sequential-1";
+const BUILD = "upright-1";
+
+// Spoken as a safety message while the phone is held sideways.
+const UPRIGHT_MSG = "Hold your phone upright.";
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -57,6 +60,14 @@ function describeGround(s) {
 	);
 }
 
+// True when the phone is held sideways. Uses the screen orientation, and falls back
+// to the window shape if the browser doesn't report an orientation.
+function isHorizontal() {
+	const type = screen.orientation?.type;
+	if (type) return type.startsWith("landscape");
+	return window.innerWidth > window.innerHeight;
+}
+
 // Runs one model and returns its output along with how long it took.
 async function timed(run) {
 	const t = performance.now();
@@ -93,7 +104,19 @@ async function inferOnce() {
 		}));
 		prevMeters = markApproaching(dets, prevMeters);
 
-		const alert = decide(dets, lastGround, fresh);
+		let alert = decide(dets, lastGround, fresh);
+		if (isHorizontal()) {
+			// A safety message: it repeats every REMINDER_MS until the phone is upright again.
+			alert = {
+				...alert,
+				key: "orientation",
+				text: UPRIGHT_MSG,
+				tier: 1,
+				topic: null,
+				safety: true,
+				reminder: UPRIGHT_MSG,
+			};
+		}
 		handleAlert(alert);
 		drawOverlay(video, lastSemMap, alert.focus);
 

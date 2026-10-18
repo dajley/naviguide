@@ -1,3 +1,4 @@
+import { zoneRanges } from "./geometry.js";
 import {
 	CLOSE_M,
 	NEAR_M,
@@ -23,14 +24,6 @@ const ACTION_CONFIRM = 2; // a new direction must hold this many cycles before i
 const SECOND_CONFIRM = 2; // a second object must hold this many cycles before it's named
 
 const OPPOSITE = { left: "right", right: "left" };
-
-// Horizontal extent of each zone in the 640-pixel model input.
-const IMG = 640;
-const ZONES = {
-	left: [0, IMG / 3],
-	center: [IMG / 3, (2 * IMG) / 3],
-	right: [(2 * IMG) / 3, IMG],
-};
 
 // Ground state. Only updated when the semantic model gives a fresh reading.
 let currentSurface = null;
@@ -172,10 +165,10 @@ function updateApproach(dets) {
 	}
 }
 
-// Which of the three zones a box overlaps horizontally.
+// Which of the three zones a box overlaps horizontally, using the thirds of the real picture.
 function zonesOverlapped(box) {
 	const [x1, , x2] = box;
-	return Object.entries(ZONES)
+	return Object.entries(zoneRanges())
 		.filter(([, [a, b]]) => x2 > a && x1 < b)
 		.map(([zone]) => zone);
 }
