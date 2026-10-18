@@ -21,6 +21,7 @@ function request(width, height) {
 			facingMode: { ideal: "environment" },
 			width: { ideal: width },
 			height: { ideal: height },
+			aspectRatio: { ideal: width / height },
 		},
 		audio: false,
 	});
