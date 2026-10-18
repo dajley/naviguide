@@ -193,6 +193,9 @@ export function drawOverlay(video, classTensor, focus, turn = false) {
 
 	// The picture always shows, even before the first class map or when the overlay is hidden.
 	drawFrame(video, turn, vw, vh);
+	ctx.font = "16px system-ui, sans-serif";
+	ctx.fillStyle = "#ff0";
+	ctx.fillText(`${vw}x${vh} turn=${turn}`, 8, 22);
 
 	if (!visible || !classTensor) {
 		resetLead();
