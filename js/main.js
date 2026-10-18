@@ -60,9 +60,11 @@ function describeGround(s) {
 	);
 }
 
-// True when the phone is held sideways. Uses the screen orientation, and falls back
+// True when a phone or tablet is held sideways. Laptops and desktops are skipped,
+// since they are always horizontal. Uses the screen orientation, and falls back
 // to the window shape if the browser doesn't report an orientation.
 function isHorizontal() {
+	if (!(navigator.maxTouchPoints > 0)) return false;
 	const type = screen.orientation?.type;
 	if (type) return type.startsWith("landscape");
 	return window.innerWidth > window.innerHeight;
