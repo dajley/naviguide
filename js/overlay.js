@@ -43,13 +43,10 @@ const STYLE = {
 };
 const OBJECT_RGB = { moving: [255, 140, 0], general: [170, 80, 255] };
 
+// The one canvas the user sees. It holds the upright camera picture, with the overlay drawn on
+// top. The <video> element is only a source and is kept out of sight (see styles.css).
 const canvas = document.getElementById("overlay");
-const camera = document.getElementById("camera");
 const ctx = canvas.getContext("2d");
-
-// Upright picture: the ground layer and lead box are drawn here first, in the upright shape.
-const uprightCanvas = document.createElement("canvas");
-const uprightCtx = uprightCanvas.getContext("2d");
 
 // Ground layer: the 640×640 class map, colored, drawn only for the categories in focus.
 const groundCanvas = document.createElement("canvas");
@@ -58,8 +55,6 @@ groundCanvas.height = MODEL;
 const groundCtx = groundCanvas.getContext("2d");
 const groundImage = groundCtx.createImageData(MODEL, MODEL);
 const catMap = new Uint8Array(MODEL * MODEL);
-
-const TURN_DEG = (TURN * 180) / Math.PI;
 
 let visible = true;
 
@@ -71,33 +66,36 @@ export function overlayVisible() {
 	return visible;
 }
 
+// Hides or shows the colored overlay only. The camera picture stays on screen either way.
 export function setOverlayVisible(v) {
 	visible = v;
-	canvas.style.display = v ? "block" : "none";
-	if (!v) clearOverlay();
+	if (!v) resetLead();
 }
 
+// Resets the smoothed lead box. The picture is redrawn every frame, so nothing else needs clearing.
 export function clearOverlay() {
-	ctx.clearRect(0, 0, canvas.width, canvas.height);
+	resetLead();
+}
+
+function resetLead() {
 	leadBox = null;
 	leadKey = null;
 }
 
-// Places the video and overlay on screen. When turned, both are sized in the camera's shape and
-// then turned by TURN, so the picture appears upright. When not turned, the styles are cleared
-// and the stylesheet's layout applies.
-function layoutElements(turn) {
-	const stage = canvas.parentElement;
-	for (const el of [camera, canvas]) {
-		if (!turn) {
-			el.style.cssText = "";
-			continue;
-		}
-		el.style.cssText =
-			"left:50%;top:50%;right:auto;bottom:auto;" +
-			`width:${stage.clientHeight}px;height:${stage.clientWidth}px;` +
-			`transform:translate(-50%,-50%) rotate(${TURN_DEG}deg);`;
+// Draws the camera frame onto the canvas, turned upright when needed. The canvas is already the
+// upright size. When turned, the video is drawn at its own size, centered, then rotated by TURN.
+function drawFrame(video, turn, vw, vh) {
+	const uw = canvas.width;
+	const uh = canvas.height;
+	ctx.save();
+	if (turn) {
+		ctx.translate(uw / 2, uh / 2);
+		ctx.rotate(TURN);
+		ctx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
+	} else {
+		ctx.drawImage(video, 0, 0, uw, uh);
 	}
+	ctx.restore();
 }
 
 // Colors the class map. Walkable surfaces are always shown. Other categories are shown only
@@ -141,8 +139,8 @@ function smoothLeadBox(obj) {
 }
 
 // Highlights the lead object with a translucent fill, a soft white outline, and a small label.
-// Drawn onto the target context, in the upright picture's size.
-function drawLead(target, obj, g, uw, uh) {
+// Coordinates are mapped from the model's letterboxed square to the upright picture.
+function drawLead(obj, g, uw, uh) {
 	const sx = uw / g.cw;
 	const sy = uh / g.ch;
 	const [x1, y1, x2, y2] = smoothLeadBox(obj);
@@ -153,81 +151,62 @@ function drawLead(target, obj, g, uw, uh) {
 	const [r, gg, b] = obj.moving ? OBJECT_RGB.moving : OBJECT_RGB.general;
 	const lw = Math.max(4, Math.round(uh * 0.008));
 
-	target.save();
-	target.fillStyle = `rgba(${r}, ${gg}, ${b}, 0.28)`;
-	target.fillRect(x, y, w, h);
-	target.strokeStyle = "#ffffff";
-	target.lineWidth = lw;
-	target.shadowColor = "rgba(255, 255, 255, 0.9)";
-	target.shadowBlur = lw * 2;
-	target.strokeRect(x, y, w, h);
-	target.restore();
+	ctx.save();
+	ctx.fillStyle = `rgba(${r}, ${gg}, ${b}, 0.28)`;
+	ctx.fillRect(x, y, w, h);
+	ctx.strokeStyle = "#ffffff";
+	ctx.lineWidth = lw;
+	ctx.shadowColor = "rgba(255, 255, 255, 0.9)";
+	ctx.shadowBlur = lw * 2;
+	ctx.strokeRect(x, y, w, h);
+	ctx.restore();
 
 	const fs = Math.max(12, Math.round(uh * 0.03));
 	const text = `${obj.name} ${obj.meters.toFixed(1)}m`;
-	target.font = `600 ${fs}px system-ui, sans-serif`;
-	target.textBaseline = "top";
+	ctx.font = `600 ${fs}px system-ui, sans-serif`;
+	ctx.textBaseline = "top";
 	const pad = 4;
-	const tw = target.measureText(text).width + pad * 2;
+	const tw = ctx.measureText(text).width + pad * 2;
 	const top = Math.max(0, y - fs - pad * 2);
-	target.fillStyle = `rgb(${r}, ${gg}, ${b})`;
-	target.fillRect(x, top, tw, fs + pad * 2);
-	target.fillStyle = "#000";
-	target.fillText(text, x + pad, top + pad);
+	ctx.fillStyle = `rgb(${r}, ${gg}, ${b})`;
+	ctx.fillRect(x, top, tw, fs + pad * 2);
+	ctx.fillStyle = "#000";
+	ctx.fillText(text, x + pad, top + pad);
 }
 
-// Draws the overlay on top of the live video, aligned with the real picture.
-// classTensor: the most recent class map (may be a few cycles old).
+// Draws the camera picture, with the overlay on top, onto the one visible canvas.
+// classTensor: the most recent class map (may be a few cycles old), or null before the first.
 // focus: what the current alert is about, from navigation.js, or null.
 // turn: true when the frame was turned upright for the models.
 export function drawOverlay(video, classTensor, focus, turn = false) {
-	if (!visible || !classTensor || video.videoWidth === 0) return;
-
 	const vw = video.videoWidth;
 	const vh = video.videoHeight;
-	// The upright picture is the camera frame with its width and height swapped when turned.
+	if (!vw || !vh) return;
+
+	// The upright picture is the camera frame with width and height swapped when turned.
 	const uw = turn ? vh : vw;
 	const uh = turn ? vw : vh;
-
-	if (canvas.width !== vw || canvas.height !== vh) {
-		canvas.width = vw;
-		canvas.height = vh;
-	}
-	if (uprightCanvas.width !== uw || uprightCanvas.height !== uh) {
-		uprightCanvas.width = uw;
-		uprightCanvas.height = uh;
+	if (canvas.width !== uw || canvas.height !== uh) {
+		canvas.width = uw;
+		canvas.height = uh;
 	}
 
-	layoutElements(turn);
+	// The picture always shows, even before the first class map or when the overlay is hidden.
+	drawFrame(video, turn, vw, vh);
 
+	if (!visible || !classTensor) {
+		resetLead();
+		return;
+	}
 	// No lead this frame: drop the smoothed box so the next lead starts clean.
-	if (!focus?.object) {
-		leadBox = null;
-		leadKey = null;
-	}
+	if (!focus?.object) resetLead();
 
 	const g = geometry();
 	const active = new Set(
 		(focus?.cats ?? []).map((name) => CAT_BY_NAME[name]).filter(Boolean),
 	);
 	drawGround(classTensor, active);
+	ctx.drawImage(groundCanvas, g.x0, g.y0, g.cw, g.ch, 0, 0, uw, uh);
 
-	// Draw the upright picture first: the ground layer, then the lead box.
-	uprightCtx.clearRect(0, 0, uw, uh);
-	uprightCtx.imageSmoothingEnabled = true;
-	uprightCtx.drawImage(groundCanvas, g.x0, g.y0, g.cw, g.ch, 0, 0, uw, uh);
-	if (focus?.object) drawLead(uprightCtx, focus.object, g, uw, uh);
-
-	// Then place it on the camera-shaped canvas. It's turned back by -TURN here, so the
-	// CSS turn on screen brings it upright.
-	ctx.clearRect(0, 0, vw, vh);
-	if (turn) {
-		ctx.save();
-		ctx.translate(vw / 2, vh / 2);
-		ctx.rotate(-TURN);
-		ctx.drawImage(uprightCanvas, -uw / 2, -uh / 2, uw, uh);
-		ctx.restore();
-	} else {
-		ctx.drawImage(uprightCanvas, 0, 0, uw, uh);
-	}
+	if (focus?.object) drawLead(focus.object, g, uw, uh);
 }
