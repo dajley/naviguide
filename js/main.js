@@ -81,8 +81,13 @@ async function inferOnce() {
 	busy = true;
 	try {
 		const t0 = performance.now();
-		updateGeometry(video.videoWidth, video.videoHeight);
-		const frame = frameToTensor(video);
+		// Turn the frame upright when the phone is upright but the camera gives a landscape frame.
+		const turn = !isHorizontal() && video.videoWidth > video.videoHeight;
+		updateGeometry(
+			turn ? video.videoHeight : video.videoWidth,
+			turn ? video.videoWidth : video.videoHeight,
+		);
+		const frame = frameToTensor(video, turn);
 
 		// The models run one after another. ONNX Runtime web does not allow overlapping runs across sessions.
 		const seg = await timed(() => runSeg(frame));
@@ -120,7 +125,7 @@ async function inferOnce() {
 			};
 		}
 		handleAlert(alert);
-		drawOverlay(video, lastSemMap, alert.focus);
+		drawOverlay(video, lastSemMap, alert.focus, turn);
 
 		const backend = getBackend();
 		const semText = sem === null ? "sem skipped" : `sem ${sem.ms} ms`;

@@ -1,6 +1,10 @@
 // Size of the square the models see.
 export const MODEL = 640;
 
+// How far to turn a sideways camera frame upright, in radians. Used by the preprocessing and
+// the on-screen display. If the picture comes out upside down on a device, flip the sign.
+export const TURN = Math.PI / 2;
+
 // The model sees a 640x640 square. The camera frame is letterboxed into it: scaled to fit,
 // centered, and padded with gray. These values describe where the real picture sits.
 const g = { x0: 0, y0: 0, cw: MODEL, ch: MODEL, vw: MODEL, vh: MODEL };
