@@ -34,6 +34,7 @@ const SHELL_FILES = [
 	"./js/sem.js",
 	"./js/speech.js",
 	"./js/voice.js",
+	"./js/intro.js",
 	"./icons/naviguide-icon-192.png",
 	"./icons/naviguide-icon-512.png",
 	"./icons/naviguide-icon-180.png",
