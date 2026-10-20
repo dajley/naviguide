@@ -1,3 +1,4 @@
+import { startIntro } from "./intro.js";
 import { startCamera, stopCamera } from "./camera.js";
 import { loadModels, runSeg, runDepth, runSem, getBackend } from "./models.js";
 import { frameToTensor } from "./preprocess.js";
@@ -184,3 +185,5 @@ button.addEventListener("click", async () => {
 		button.disabled = false;
 	}
 });
+
+startIntro();

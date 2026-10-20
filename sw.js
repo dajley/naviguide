@@ -9,8 +9,8 @@
 // When you change app files, bump SHELL_VERSION so the install step re-caches
 // the shell. When you change a model or the vendored runtime, bump ASSET_VERSION.
 
-const SHELL_VERSION = "v1";
-const ASSET_VERSION = "v1";
+const SHELL_VERSION = "v2";
+const ASSET_VERSION = "v2";
 const SHELL_CACHE = `naviguide-shell-${SHELL_VERSION}`;
 const ASSET_CACHE = `naviguide-assets-${ASSET_VERSION}`;
 
@@ -34,9 +34,9 @@ const SHELL_FILES = [
 	"./js/sem.js",
 	"./js/speech.js",
 	"./js/voice.js",
-	"./icons/icon-192.png",
-	"./icons/icon-512.png",
-	"./icons/apple-touch-icon.png",
+	"./icons/naviguide-icon-192.png",
+	"./icons/naviguide-icon-512.png",
+	"./icons/naviguide-icon-180.png",
 ];
 
 const ASSET_FILES = [

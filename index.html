@@ -10,12 +10,29 @@
 		<meta name="theme-color" content="#000000" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<link rel="manifest" href="manifest.webmanifest" />
-		<link rel="icon" href="icons/icon-192.png" type="image/png" />
-		<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+		<link rel="icon" href="icons/naviguide-icon-192.png" type="image/png" />
+		<link rel="apple-touch-icon" href="icons/naviguide-icon-180.png" />
 		<link rel="stylesheet" href="css/styles.css" />
 	</head>
 	<body>
-		<main>
+		<section id="intro" class="intro">
+			<img
+				class="intro-logo"
+				src="icons/icon-512.png"
+				alt=""
+				aria-hidden="true"
+			/>
+			<div id="welcome" class="intro-welcome" hidden>
+				<h1>Welcome to NaViGuide</h1>
+				<p>Say start navigation or press Start.</p>
+			</div>
+			<button id="begin" class="intro-begin" type="button">
+				Tap to continue
+			</button>
+		</section>
+
+		<!-- inert keeps the main screen out of reach until the intro is done. -->
+		<main inert>
 			<div class="stage">
 				<video
 					id="camera"
