@@ -33,6 +33,7 @@ const SHELL_FILES = [
 	"./js/preprocess.js",
 	"./js/sem.js",
 	"./js/speech.js",
+	"./js/voice.js",
 	"./icons/icon-192.png",
 	"./icons/icon-512.png",
 	"./icons/apple-touch-icon.png",
@@ -45,6 +46,8 @@ const ASSET_FILES = [
 	"./models/yolo26n-seg.onnx",
 	"./models/yolo26n-depth.onnx",
 	"./models/yolo26n-sem-ade20k.onnx",
+	"./js/vendor/vosk/vosk.js",
+	"./models/vosk-model-small-en-us.tar.gz",
 ];
 
 const ASSET_PATH = /\/(models|js\/vendor)\//;
