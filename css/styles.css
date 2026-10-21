@@ -51,8 +51,12 @@ main {
 	pointer-events: none;
 }
 
+/* Fixed height, so a longer message never resizes the camera picture above it. */
 #status {
 	font-size: 1.25rem;
+	line-height: 1.3;
+	height: calc(4 * 1.3em);
+	overflow: hidden;
 	margin: 12px 0;
 	text-align: center;
 }

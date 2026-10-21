@@ -121,15 +121,16 @@ function drawLead(obj, box, g, w, h) {
 	const [r, gg, b] = obj.moving ? OBJECT_RGB.moving : OBJECT_RGB.general;
 	const lw = Math.max(4, Math.round(h * 0.008));
 
-	ctx.save();
+	// The soft glow is a wider, faint stroke under the outline. Canvas shadowBlur looks the same
+	// but is too slow on phones to redraw every screen frame.
 	ctx.fillStyle = `rgba(${r}, ${gg}, ${b}, 0.28)`;
 	ctx.fillRect(x, y, bw, bh);
+	ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+	ctx.lineWidth = lw * 3;
+	ctx.strokeRect(x, y, bw, bh);
 	ctx.strokeStyle = "#ffffff";
 	ctx.lineWidth = lw;
-	ctx.shadowColor = "rgba(255, 255, 255, 0.9)";
-	ctx.shadowBlur = lw * 2;
 	ctx.strokeRect(x, y, bw, bh);
-	ctx.restore();
 
 	const fs = Math.max(12, Math.round(h * 0.03));
 	const text = `${obj.name} ${obj.meters.toFixed(1)}m`;
