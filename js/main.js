@@ -3,7 +3,7 @@ import { startCamera, stopCamera } from "./camera.js";
 import { unlockSpeech, say } from "./speech.js";
 import { handleAlert, resetAlerts } from "./alerts.js";
 import { setOverlay, startDisplay, stopDisplay } from "./overlay.js";
-import { updateGeometry } from "./geometry.js";
+import { geometry, updateGeometry } from "./geometry.js";
 import { decide, markApproaching, resetNavigation } from "./navigation.js";
 import { createVoice } from "./voice.js";
 
@@ -111,7 +111,13 @@ async function inferOnce() {
 	busy = true;
 	try {
 		updateGeometry(video.videoWidth, video.videoHeight);
-		const bitmap = await createImageBitmap(video);
+		// Grab the frame at the size the model uses, not full camera size, so the copy is small and quick.
+		const g = geometry();
+		const bitmap = await createImageBitmap(video, {
+			resizeWidth: g.cw,
+			resizeHeight: g.ch,
+			resizeQuality: "low",
+		});
 		const reset = needReset;
 		needReset = false;
 

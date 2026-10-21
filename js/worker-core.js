@@ -6,7 +6,7 @@ import { depthAt } from "./depth.js";
 import { analyzeSem } from "./sem.js";
 
 // Test switch. true runs every model on the CPU, even when WebGPU is available.
-const FORCE_CPU = false;
+const FORCE_CPU = true; // set to false to use WebGPU when available
 
 const GPU_OPTS = {
 	executionProviders: ["webgpu", "wasm"],
