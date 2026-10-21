@@ -1,14 +1,22 @@
 import { startIntro } from "./intro.js";
 import { startCamera, stopCamera } from "./camera.js";
+import { loadModels, runSeg, runDepth, runSem, getBackend } from "./models.js";
+import { frameToTensor } from "./preprocess.js";
+import { decodeDetections } from "./detect.js";
+import { depthAt } from "./depth.js";
+import { analyzeSem } from "./sem.js";
+import { decide, markApproaching, resetNavigation } from "./navigation.js";
 import { unlockSpeech, say } from "./speech.js";
 import { handleAlert, resetAlerts } from "./alerts.js";
+import { SEM_EVERY } from "./config.js";
 import { setOverlay, startDisplay, stopDisplay } from "./overlay.js";
-import { geometry, updateGeometry } from "./geometry.js";
-import { decide, markApproaching, resetNavigation } from "./navigation.js";
-import { createVoice } from "./voice.js";
+import { updateGeometry } from "./geometry.js";
 
 // Spoken as a safety message while the phone is held sideways.
 const UPRIGHT_MSG = "Hold your phone upright.";
+
+// Gap between analysis passes. It gives the GPU and the camera video time to draw.
+const PAUSE_BETWEEN_PASSES_MS = 300;
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -17,17 +25,10 @@ const status = document.getElementById("status");
 let running = false;
 let loopId = 0;
 let busy = false;
-let rest = 0; // GPU rest the worker asked for before the next frame, in ms
-let needReset = false;
+let cycle = 0;
 let lastGround = null;
 let lastSemMap = null;
 let prevMeters = new Map();
-let stopRequested = false; // Set when "stop navigation" is said while the app is still loading.
-
-let worker = null;
-let modelsReady = false;
-let backend = "none";
-let pending = null; // The request waiting for the worker's reply.
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -70,71 +71,46 @@ function isHorizontal() {
 	return window.innerWidth > window.innerHeight;
 }
 
-// Sends one request to the worker and waits for its reply.
-function request(msg, transfer = []) {
-	return new Promise((resolve, reject) => {
-		pending = { resolve, reject };
-		worker.postMessage(msg, transfer);
-	});
+// Runs one model and returns its output along with how long it took.
+async function timed(run) {
+	const t = performance.now();
+	const out = await run();
+	return { out, ms: Math.round(performance.now() - t) };
 }
 
-function getWorker() {
-	if (!worker) {
-		worker = new Worker("./js/worker.js");
-		worker.onmessage = (e) => {
-			if (!pending) return;
-			const { resolve, reject } = pending;
-			pending = null;
-			if (e.data.type === "error") reject(new Error(e.data.message));
-			else resolve(e.data);
-		};
-		worker.onerror = (e) => {
-			if (!pending) return;
-			const { reject } = pending;
-			pending = null;
-			reject(new Error(e.message || "The model worker failed."));
-		};
-	}
-	return worker;
-}
-
-async function loadModelsInWorker() {
-	if (modelsReady) return;
-	getWorker();
-	const base = new URL("./", document.baseURI).href;
-	const reply = await request({ type: "init", base });
-	backend = reply.backend;
-	modelsReady = true;
-}
-
-// Runs one analysis pass in the worker, then updates the app with the result.
 async function inferOnce() {
 	busy = true;
 	try {
+		const t0 = performance.now();
 		updateGeometry(video.videoWidth, video.videoHeight);
-		// Grab the frame at the size the model uses, not full camera size, so the copy is small and quick.
-		const g = geometry();
-		const bitmap = await createImageBitmap(video, {
-			resizeWidth: g.cw,
-			resizeHeight: g.ch,
-			resizeQuality: "low",
-		});
-		const reset = needReset;
-		needReset = false;
+		const frame = frameToTensor(video);
 
-		const r = await request({ type: "frame", bitmap, reset }, [bitmap]);
+		// The models run one after another. ONNX Runtime web does not allow overlapping runs across sessions.
+		const seg = await timed(() => runSeg(frame));
+		const depth = await timed(() => runDepth(frame));
 
-		// Stop was pressed while the worker was busy. Don't update anything.
+		// The semantic model runs every SEM_EVERY cycles. Its class map and ground state are reused in between.
+		const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
+		const sem = fresh ? await timed(() => runSem(frame)) : null;
+
+		// Stop was pressed while the models were running. Don't update anything.
 		if (!running) return;
 
-		if (r.sem) lastSemMap = { dims: r.sem.dims, data: r.sem.data };
-		lastGround = r.ground;
+		const depthMap = Object.values(depth.out)[0];
+		if (sem) {
+			lastSemMap = Object.values(sem.out)[0];
+			lastGround = analyzeSem(lastSemMap, depthMap);
+		}
+		cycle++;
+		const ms = Math.round(performance.now() - t0);
 
-		rest = r.rest;
-		const dets = r.dets;
+		const dets = decodeDetections(Object.values(seg.out)[0]).map((d) => ({
+			...d,
+			meters: depthAt(depthMap, d.box),
+		}));
 		prevMeters = markApproaching(dets, prevMeters);
 
-		let alert = decide(dets, lastGround, r.fresh);
+		let alert = decide(dets, lastGround, fresh);
 		if (isHorizontal()) {
 			// A safety message: it repeats every REMINDER_MS until the phone is upright again.
 			alert = {
@@ -150,7 +126,13 @@ async function inferOnce() {
 		handleAlert(alert);
 		setOverlay(lastSemMap, alert.focus);
 
-		console.log("timing", backend, r.timing);
+		// Timings and the backend go to the console. The status line stays focused on navigation.
+		console.log("timing", getBackend(), {
+			seg: seg.ms,
+			depth: depth.ms,
+			sem: sem ? sem.ms : null,
+			total: ms,
+		});
 
 		status.textContent = `Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)}`;
 	} catch (err) {
@@ -160,7 +142,7 @@ async function inferOnce() {
 	}
 }
 
-// Runs analysis back to back. Each pass starts as soon as the previous one ends.
+// Runs analysis one pass at a time, with a short pause between passes.
 // The id check stops an old loop if Stop and Start are pressed quickly.
 async function loop(id) {
 	while (running && id === loopId) {
@@ -169,51 +151,40 @@ async function loop(id) {
 			continue;
 		}
 		await inferOnce();
-		await sleep(rest);
-		rest = 0;
+		await sleep(PAUSE_BETWEEN_PASSES_MS);
 	}
 }
 
 async function startApp() {
 	if (running || button.disabled) return;
-	stopRequested = false;
 	button.disabled = true;
-	voice.pause();
 	try {
 		unlockSpeech();
 		resetAlerts();
 		resetNavigation();
 		prevMeters = new Map();
+		cycle = 0;
 		lastGround = null;
 		lastSemMap = null;
-		needReset = true;
 		status.textContent = "Starting camera…";
 		await startCamera(video);
 		startDisplay(video);
 		status.textContent = "Loading models…";
-		await loadModelsInWorker();
+		await loadModels();
 		running = true;
 		loopId++;
 		button.textContent = "Stop";
-		if (stopRequested) {
-			stopApp();
-			return;
-		}
 		say("Navigation started.");
 		loop(loopId);
 	} catch (err) {
 		status.textContent = `Error: ${err.name}. ${err.message}`;
-		voice.resume();
 	} finally {
 		button.disabled = false;
 	}
 }
 
 function stopApp() {
-	if (!running) {
-		stopRequested = true; // Stop was said while still loading.
-		return;
-	}
+	if (!running) return;
 	running = false;
 	loopId++;
 	stopCamera(video);
@@ -223,18 +194,8 @@ function stopApp() {
 	speechSynthesis.cancel(); // Stop any navigation alert still being spoken.
 	// Give the browser a moment to clear the cancelled alert before speaking again.
 	setTimeout(() => say("Navigation stopped."), 400);
-	voice.resume(); // waits until "Navigation stopped." has been spoken
 }
 
-const voice = createVoice({
-	onStart: startApp,
-	onStop: stopApp,
-	onStatus: (text) => (status.textContent = text),
-});
-
 button.addEventListener("click", () => (running ? stopApp() : startApp()));
-
-// The first tap (on the intro screen) starts voice listening.
-document.addEventListener("pointerdown", () => voice.listen(), { once: true });
 
 startIntro();

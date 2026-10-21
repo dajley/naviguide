@@ -74,9 +74,5 @@ export const WALL_PCT = 15; // structure share of the center path region
 
 // Processing and speech timing.
 export const SEM_EVERY = 2; // run the semantic model every Nth cycle; ground is reused in between
-// After each model on the GPU, rest this many times as long as the model ran, so the GPU has
-// time to draw the camera video. 1 keeps the GPU busy about half the time. Lower is faster
-// detection but a less smooth picture; 0 turns pacing off.
-export const GPU_REST = 1;
 export const REMINDER_MS = 10000; // repeat the "still ahead" reminder after this long
 export const INFO_GAP_MS = 3000; // minimum time between information messages (tier 3)

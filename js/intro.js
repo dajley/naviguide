@@ -3,7 +3,7 @@
 
 const WELCOME = "Welcome to NaViGuide";
 const PROMPT =
-	"Instructions may lag by a few seconds. Say start navigation or press Start.";
+	"Instructions may lag by a few seconds. Press Start to begin.";
 const FADE_MS = 600;
 
 const intro = document.getElementById("intro");
