@@ -140,7 +140,7 @@ async function inferOnce() {
 			};
 		}
 		handleAlert(alert);
-		//setOverlay(lastSemMap, alert.focus);
+		setOverlay(lastSemMap, alert.focus);
 
 		console.log("timing", backend, r.timing);
 
@@ -161,7 +161,7 @@ async function loop(id) {
 			continue;
 		}
 		await inferOnce();
-		await sleep(0);
+		await sleep(200);
 	}
 }
 
@@ -223,6 +223,6 @@ const voice = createVoice({
 button.addEventListener("click", () => (running ? stopApp() : startApp()));
 
 // The first tap (on the intro screen) starts voice listening.
-//document.addEventListener("pointerdown", () => voice.listen(), { once: true });
+document.addEventListener("pointerdown", () => voice.listen(), { once: true });
 
 startIntro();

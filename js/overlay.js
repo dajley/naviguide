@@ -218,7 +218,7 @@ export function setOverlay(classTensor, focus) {
 	if (!classTensor) {
 		groundReady = false;
 		lastTensor = null;
-	} else if (classTensor !== lastTensor) {
+	} else if (classTensor !== lastTensor || activeKey !== lastActiveKey) {
 		drawGround(classTensor, active);
 		groundReady = true;
 		lastTensor = classTensor;
