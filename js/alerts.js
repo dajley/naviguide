@@ -4,7 +4,7 @@ import { REMINDER_MS, INFO_GAP_MS } from "./config.js";
 
 // A subject (for example, the person on your left) isn't spoken again within this window,
 // even if its wording or direction changes. Safety messages are exempt.
-const TOPIC_COOLDOWN_MS = 8000;
+const TOPIC_COOLDOWN_MS = 4000; //was 8000
 
 let currentKey = null;
 let lastSpokenAt = 0;
