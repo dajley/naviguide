@@ -16,6 +16,8 @@ import { createVoice } from "./voice.js";
 // Spoken as a safety message while the phone is held sideways.
 const UPRIGHT_MSG = "Hold your phone upright.";
 
+const PAUSE_BETWEEN_PASSES_MS = 300;
+
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
 const status = document.getElementById("status");
@@ -151,7 +153,7 @@ async function loop(id) {
 			continue;
 		}
 		await inferOnce();
-		await sleep(0);
+		await sleep(PAUSE_BETWEEN_PASSES_MS);
 	}
 }
 
