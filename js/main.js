@@ -223,6 +223,6 @@ const voice = createVoice({
 button.addEventListener("click", () => (running ? stopApp() : startApp()));
 
 // The first tap (on the intro screen) starts voice listening.
-document.addEventListener("pointerdown", () => voice.listen(), { once: true });
+//document.addEventListener("pointerdown", () => voice.listen(), { once: true });
 
 startIntro();
