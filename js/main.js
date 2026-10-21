@@ -140,7 +140,7 @@ async function inferOnce() {
 			};
 		}
 		handleAlert(alert);
-		setOverlay(lastSemMap, alert.focus);
+		//setOverlay(lastSemMap, alert.focus);
 
 		console.log("timing", backend, r.timing);
 
