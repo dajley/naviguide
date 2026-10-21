@@ -1,5 +1,5 @@
 // Model work that runs inside the worker: loads the ONNX models and runs one analysis pass per frame.
-import { SEM_EVERY } from "./config.js";
+import { SEM_EVERY, GPU_REST } from "./config.js";
 import { MODEL, geometry, updateGeometry } from "./geometry.js";
 import { decodeDetections } from "./detect.js";
 import { depthAt } from "./depth.js";
@@ -19,6 +19,7 @@ let segSession = null;
 let depthSession = null;
 let semSession = null;
 let backend = "none";
+let onGpu = false; // true when seg and depth run on the GPU
 let cycle = 0;
 let lastGround = null;
 
@@ -64,6 +65,7 @@ export async function init(base) {
 	}
 	semSession = await ort.InferenceSession.create(semUrl, CPU_OPTS);
 
+	onGpu = gpuOk;
 	backend = gpuOk ? "webgpu (seg, depth) + cpu (sem)" : "cpu";
 	return backend;
 }
@@ -112,6 +114,13 @@ async function timed(run) {
 	return { out, ms: Math.round(performance.now() - t) };
 }
 
+// The GPU that runs seg and depth also draws the camera video. Back-to-back model runs
+// leave it no time for the video, so the picture stutters. This gives it a rest after each one.
+function gpuRest(ms) {
+	if (!onGpu || GPU_REST <= 0) return Promise.resolve();
+	return new Promise((r) => setTimeout(r, ms * GPU_REST));
+}
+
 // Runs one analysis pass on a camera frame. Returns the detections, the ground reading,
 // and the class map when it was refreshed this pass.
 export async function processFrame(bitmap, reset) {
@@ -127,12 +136,16 @@ export async function processFrame(bitmap, reset) {
 	const seg = await timed(() =>
 		segSession.run({ [segSession.inputNames[0]]: input(frame) }),
 	);
+	await gpuRest(seg.ms);
 	const depth = await timed(() =>
 		depthSession.run({ [depthSession.inputNames[0]]: input(frame) }),
 	);
 
 	// The semantic model runs every SEM_EVERY cycles. Its ground state is reused in between.
+	// It runs on the CPU, so it already gives the GPU a rest. Without it, the rest after depth
+	// is returned and taken by main.js before the next frame, so the result isn't held back.
 	const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
+	const rest = !fresh && onGpu ? Math.round(depth.ms * GPU_REST) : 0;
 	const sem = fresh
 		? await timed(() =>
 				semSession.run({ [semSession.inputNames[0]]: input(frame) }),
@@ -159,6 +172,7 @@ export async function processFrame(bitmap, reset) {
 		ground: lastGround,
 		fresh,
 		sem: semOut,
+		rest,
 		timing: {
 			backend,
 			seg: seg.ms,

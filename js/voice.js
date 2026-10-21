@@ -15,6 +15,8 @@ export function voiceSupported() {
 
 export function createVoice({ onStart, onStop, onStatus }) {
 	let wanted = false; // true once the user has tapped and voice should keep listening
+	let paused = false; // true while navigation runs, so the mic is off and doesn't compete with the camera
+	let rec = null;
 	let quietUntil = 0;
 
 	const say = (text) => onStatus?.(text);
@@ -45,7 +47,7 @@ export function createVoice({ onStart, onStop, onStatus }) {
 	// Starts the recognizer once the app has finished speaking.
 	function startWhenQuiet(r) {
 		const tryStart = () => {
-			if (!wanted) return;
+			if (!wanted || paused) return;
 			if (window.speechSynthesis?.speaking) {
 				setTimeout(tryStart, 200);
 				return;
@@ -86,7 +88,7 @@ export function createVoice({ onStart, onStop, onStatus }) {
 
 		r.onend = () => {
 			// Chrome stops listening after a while, so restart it as long as the user wants it on.
-			if (wanted) startWhenQuiet(r);
+			if (wanted && !paused) startWhenQuiet(r);
 		};
 
 		return r;
@@ -110,8 +112,21 @@ export function createVoice({ onStart, onStop, onStatus }) {
 			}
 			if (wanted) return;
 			wanted = true;
-			startWhenQuiet(build());
-			say('Voice on. Say "start navigation" or "stop navigation".');
+			rec = build();
+			if (!paused) startWhenQuiet(rec);
+			say('Voice on. Say "start navigation" to begin.');
+		},
+
+		// Turns the mic off while navigation runs. Navigation is stopped with the Stop button.
+		pause() {
+			paused = true;
+			if (rec) rec.abort();
+		},
+
+		// Turns the mic back on once navigation has stopped, after the app finishes speaking.
+		resume() {
+			paused = false;
+			if (wanted && rec) startWhenQuiet(rec);
 		},
 	};
 }

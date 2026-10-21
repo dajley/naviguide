@@ -17,6 +17,7 @@ const status = document.getElementById("status");
 let running = false;
 let loopId = 0;
 let busy = false;
+let rest = 0; // GPU rest the worker asked for before the next frame, in ms
 let needReset = false;
 let lastGround = null;
 let lastSemMap = null;
@@ -129,6 +130,7 @@ async function inferOnce() {
 		if (r.sem) lastSemMap = { dims: r.sem.dims, data: r.sem.data };
 		lastGround = r.ground;
 
+		rest = r.rest;
 		const dets = r.dets;
 		prevMeters = markApproaching(dets, prevMeters);
 
@@ -167,7 +169,8 @@ async function loop(id) {
 			continue;
 		}
 		await inferOnce();
-		await sleep(0);
+		await sleep(rest);
+		rest = 0;
 	}
 }
 
@@ -175,6 +178,7 @@ async function startApp() {
 	if (running || button.disabled) return;
 	stopRequested = false;
 	button.disabled = true;
+	voice.pause();
 	try {
 		unlockSpeech();
 		resetAlerts();
@@ -199,6 +203,7 @@ async function startApp() {
 		loop(loopId);
 	} catch (err) {
 		status.textContent = `Error: ${err.name}. ${err.message}`;
+		voice.resume();
 	} finally {
 		button.disabled = false;
 	}
@@ -218,6 +223,7 @@ function stopApp() {
 	speechSynthesis.cancel(); // Stop any navigation alert still being spoken.
 	// Give the browser a moment to clear the cancelled alert before speaking again.
 	setTimeout(() => say("Navigation stopped."), 400);
+	voice.resume(); // waits until "Navigation stopped." has been spoken
 }
 
 const voice = createVoice({
