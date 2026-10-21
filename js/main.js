@@ -161,7 +161,7 @@ async function loop(id) {
 			continue;
 		}
 		await inferOnce();
-		await sleep(200);
+		await sleep(0);
 	}
 }
 

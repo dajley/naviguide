@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover"
+		/>
+		<title>Speech test</title>
+		<style>
+			body {
+				margin: 0;
+				font-family: system-ui, sans-serif;
+				background: #000;
+				color: #fff;
+			}
+			video {
+				width: 100%;
+				max-height: 60vh;
+				object-fit: cover;
+				display: block;
+				background: #111;
+			}
+			.row {
+				padding: 12px;
+				display: flex;
+				flex-direction: column;
+				gap: 10px;
+			}
+			button {
+				font-size: 18px;
+				padding: 14px;
+			}
+		</style>
+	</head>
+	<body>
+		<video id="cam" playsinline muted autoplay></video>
+		<div class="row">
+			<button id="cameraBtn">1. Start camera</button>
+			<button id="speakBtn" disabled>2. Speak once</button>
+			<button id="loopBtn" disabled>3. Speak every 4 seconds</button>
+			<p id="fps">Camera frames per second: -</p>
+			<p id="status">Tap Start camera first.</p>
+		</div>
+		<script>
+			const video = document.getElementById("cam");
+			const cameraBtn = document.getElementById("cameraBtn");
+			const speakBtn = document.getElementById("speakBtn");
+			const loopBtn = document.getElementById("loopBtn");
+			const fpsEl = document.getElementById("fps");
+			const status = document.getElementById("status");
+			const PHRASE = "Door 3 meters ahead, on your left.";
+			let timer = null;
+			let camFrames = 0;
+
+			// Counts camera frames as they arrive, so a stall shows up as a drop to 0.
+			function countFrames() {
+				camFrames++;
+				if (video.requestVideoFrameCallback)
+					video.requestVideoFrameCallback(countFrames);
+			}
+			setInterval(() => {
+				fpsEl.textContent = "Camera frames per second: " + camFrames;
+				camFrames = 0;
+			}, 1000);
+
+			function speak() {
+				const u = new SpeechSynthesisUtterance(PHRASE);
+				u.lang = "en-US";
+				speechSynthesis.speak(u);
+			}
+
+			cameraBtn.addEventListener("click", async () => {
+				try {
+					const stream = await navigator.mediaDevices.getUserMedia({
+						video: { facingMode: "environment" },
+						audio: false,
+					});
+					video.srcObject = stream;
+					await video.play();
+					countFrames();
+					speakBtn.disabled = false;
+					loopBtn.disabled = false;
+					status.textContent = "Camera on. Try speaking.";
+				} catch (err) {
+					status.textContent = "Camera error: " + err.message;
+				}
+			});
+
+			speakBtn.addEventListener("click", speak);
+
+			loopBtn.addEventListener("click", () => {
+				if (timer) {
+					clearInterval(timer);
+					timer = null;
+					loopBtn.textContent = "3. Speak every 4 seconds";
+					status.textContent = "Stopped.";
+					return;
+				}
+				speak();
+				timer = setInterval(speak, 4000);
+				loopBtn.textContent = "Stop repeating";
+				status.textContent = "Speaking every 4 seconds. Watch the frame count.";
+			});
+		</script>
+	</body>
+</html>
