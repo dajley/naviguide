@@ -11,6 +11,7 @@ import { handleAlert, resetAlerts } from "./alerts.js";
 import { SEM_EVERY } from "./config.js";
 import { setOverlay, startDisplay, stopDisplay } from "./overlay.js";
 import { updateGeometry } from "./geometry.js";
+import { createVoice } from "./voice.js";
 
 // Spoken as a safety message while the phone is held sideways.
 const UPRIGHT_MSG = "Hold your phone upright.";
@@ -26,6 +27,7 @@ let cycle = 0;
 let lastGround = null;
 let lastSemMap = null;
 let prevMeters = new Map();
+let stopRequested = false; // Set when "stop navigation" is said while the app is still loading.
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -90,6 +92,9 @@ async function inferOnce() {
 		const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
 		const sem = fresh ? await timed(() => runSem(frame)) : null;
 
+		// Stop was pressed while the models were running. Don't update anything.
+		if (!running) return;
+
 		const depthMap = Object.values(depth.out)[0];
 		if (sem) {
 			lastSemMap = Object.values(sem.out)[0];
@@ -150,40 +155,64 @@ async function loop(id) {
 	}
 }
 
-button.addEventListener("click", async () => {
+async function startApp() {
+	if (running || button.disabled) return;
+	stopRequested = false;
 	button.disabled = true;
 	try {
-		if (!running) {
-			unlockSpeech();
-			resetAlerts();
-			resetNavigation();
-			prevMeters = new Map();
-			cycle = 0;
-			lastGround = null;
-			lastSemMap = null;
-			status.textContent = "Starting camera…";
-			await startCamera(video);
-			startDisplay(video);
-			status.textContent = "Loading models…";
-			await loadModels();
-			running = true;
-			loopId++;
-			button.textContent = "Stop";
-			say("Navigation started.");
-			loop(loopId);
-		} else {
-			running = false;
-			loopId++;
-			stopCamera(video);
-			stopDisplay();
-			button.textContent = "Start";
-			status.textContent = "Camera off.";
+		unlockSpeech();
+		resetAlerts();
+		resetNavigation();
+		prevMeters = new Map();
+		cycle = 0;
+		lastGround = null;
+		lastSemMap = null;
+		status.textContent = "Starting camera…";
+		await startCamera(video);
+		startDisplay(video);
+		status.textContent = "Loading models…";
+		await loadModels();
+		running = true;
+		loopId++;
+		button.textContent = "Stop";
+		if (stopRequested) {
+			stopApp();
+			return;
 		}
+		say("Navigation started.");
+		loop(loopId);
 	} catch (err) {
 		status.textContent = `Error: ${err.name}. ${err.message}`;
 	} finally {
 		button.disabled = false;
 	}
+}
+
+function stopApp() {
+	if (!running) {
+		stopRequested = true; // Stop was said while still loading.
+		return;
+	}
+	running = false;
+	loopId++;
+	stopCamera(video);
+	stopDisplay();
+	button.textContent = "Start";
+	status.textContent = "Camera off.";
+	speechSynthesis.cancel(); // Stop any navigation alert still being spoken.
+	// Give the browser a moment to clear the cancelled alert before speaking again.
+	setTimeout(() => say("Navigation stopped."), 400);
+}
+
+const voice = createVoice({
+	onStart: startApp,
+	onStop: stopApp,
+	onStatus: (text) => (status.textContent = text),
 });
+
+button.addEventListener("click", () => (running ? stopApp() : startApp()));
+
+// The first tap (on the intro screen) starts voice listening.
+document.addEventListener("pointerdown", () => voice.listen(), { once: true });
 
 startIntro();
