@@ -33,9 +33,9 @@ const SHELL_FILES = [
 	"./js/preprocess.js",
 	"./js/sem.js",
 	"./js/speech.js",
-	"./icons/icon-192.png",
-	"./icons/icon-512.png",
-	"./icons/apple-touch-icon.png",
+	"./icons/naviguide-icon-192.png",
+	"./icons/naviguide-icon-512.png",
+	"./icons/naviguide-icon-180.png",
 ];
 
 const ASSET_FILES = [
