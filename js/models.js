@@ -60,7 +60,8 @@ export function getBackend() {
 }
 
 function input(data) {
-	// Each model gets its own copy of the input.
+	// Each model gets its own copy. In worker mode the data is moved to the worker, which
+	// would leave an empty array for the next model.
 	return new ort.Tensor("float32", new Float32Array(data), [1, 3, 640, 640]);
 }
 

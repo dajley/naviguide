@@ -23,11 +23,8 @@ const CAT_BY_NAME = {
 // How quickly the highlight box catches up to a new detection, as a fraction of the remaining
 // distance per screen frame. Higher follows more closely, lower is smoother.
 const EASE = 0.3;
-// If no new analysis arrives for a while, the overlay starts to fade and fades out over FADE_MS.
-// The wait is FADE_START_MS, or FADE_GAPS times the usual time between passes if that's longer,
-// so a slower device doesn't fade out between every pass.
+// If no new analysis arrives for FADE_START_MS, the overlay starts to fade and fades out over FADE_MS.
 const FADE_START_MS = 1000;
-const FADE_GAPS = 2.5;
 const FADE_MS = 500;
 
 // Category lookup from class ID. 0 means the class isn't drawn.
@@ -66,7 +63,6 @@ let video = null;
 let running = false;
 let frameId = 0;
 let passTime = 0; // when the latest analysis pass finished
-let passGap = 0; // usual time between passes, smoothed
 let groundReady = false;
 let lastTensor = null;
 let lastActiveKey = "";
@@ -166,9 +162,8 @@ function drawOverlay(now) {
 
 	// Fade the overlay out if the analysis has stopped giving new results.
 	const age = now - passTime;
-	const fadeStart = Math.max(FADE_START_MS, FADE_GAPS * passGap);
 	const alpha =
-		age <= fadeStart ? 1 : Math.max(0, 1 - (age - fadeStart) / FADE_MS);
+		age <= FADE_START_MS ? 1 : Math.max(0, 1 - (age - FADE_START_MS) / FADE_MS);
 	if (alpha <= 0) return;
 
 	ctx.globalAlpha = alpha;
@@ -205,7 +200,6 @@ export function stopDisplay() {
 	lastTensor = null;
 	lastActiveKey = "";
 	passTime = 0;
-	passGap = 0;
 	resetLead();
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
@@ -214,12 +208,7 @@ export function stopDisplay() {
 // classTensor: the most recent class map (may be a few passes old), or null before the first.
 // focus: what the current alert is about, from navigation.js, or null.
 export function setOverlay(classTensor, focus) {
-	const now = performance.now();
-	if (passTime) {
-		const gap = now - passTime;
-		passGap = passGap ? passGap * 0.8 + gap * 0.2 : gap;
-	}
-	passTime = now;
+	passTime = performance.now();
 
 	const active = new Set(
 		(focus?.cats ?? []).map((name) => CAT_BY_NAME[name]).filter(Boolean),

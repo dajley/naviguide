@@ -1,4 +1,3 @@
-import { startIntro } from "./intro.js";
 import { startCamera, stopCamera } from "./camera.js";
 import { loadModels, runSeg, runDepth, runSem, getBackend } from "./models.js";
 import { frameToTensor } from "./preprocess.js";
@@ -14,9 +13,6 @@ import { updateGeometry } from "./geometry.js";
 
 // Spoken as a safety message while the phone is held sideways.
 const UPRIGHT_MSG = "Hold your phone upright.";
-
-// Gap between analysis passes. It gives the GPU and the camera video time to draw.
-const PAUSE_BETWEEN_PASSES_MS = 300;
 
 const video = document.getElementById("camera");
 const button = document.getElementById("toggle");
@@ -93,9 +89,6 @@ async function inferOnce() {
 		const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
 		const sem = fresh ? await timed(() => runSem(frame)) : null;
 
-		// Stop was pressed while the models were running. Don't update anything.
-		if (!running) return;
-
 		const depthMap = Object.values(depth.out)[0];
 		if (sem) {
 			lastSemMap = Object.values(sem.out)[0];
@@ -127,7 +120,8 @@ async function inferOnce() {
 		setOverlay(lastSemMap, alert.focus);
 
 		// Timings and the backend go to the console. The status line stays focused on navigation.
-		console.log("timing", getBackend(), {
+		const backend = getBackend();
+		console.log("timing", backend, {
 			seg: seg.ms,
 			depth: depth.ms,
 			sem: sem ? sem.ms : null,
@@ -142,7 +136,7 @@ async function inferOnce() {
 	}
 }
 
-// Runs analysis one pass at a time, with a short pause between passes.
+// Runs analysis back to back. Each pass starts as soon as the previous one ends.
 // The id check stops an old loop if Stop and Start are pressed quickly.
 async function loop(id) {
 	while (running && id === loopId) {
@@ -151,51 +145,42 @@ async function loop(id) {
 			continue;
 		}
 		await inferOnce();
-		await sleep(PAUSE_BETWEEN_PASSES_MS);
+		await sleep(0);
 	}
 }
 
-async function startApp() {
-	if (running || button.disabled) return;
+button.addEventListener("click", async () => {
 	button.disabled = true;
 	try {
-		unlockSpeech();
-		resetAlerts();
-		resetNavigation();
-		prevMeters = new Map();
-		cycle = 0;
-		lastGround = null;
-		lastSemMap = null;
-		status.textContent = "Starting camera…";
-		await startCamera(video);
-		startDisplay(video);
-		status.textContent = "Loading models…";
-		await loadModels();
-		running = true;
-		loopId++;
-		button.textContent = "Stop";
-		say("Navigation started.");
-		loop(loopId);
+		if (!running) {
+			unlockSpeech();
+			resetAlerts();
+			resetNavigation();
+			prevMeters = new Map();
+			cycle = 0;
+			lastGround = null;
+			lastSemMap = null;
+			status.textContent = "Starting camera…";
+			await startCamera(video);
+			startDisplay(video);
+			status.textContent = "Loading models…";
+			await loadModels();
+			running = true;
+			loopId++;
+			button.textContent = "Stop";
+			say("Navigation started.");
+			loop(loopId);
+		} else {
+			running = false;
+			loopId++;
+			stopCamera(video);
+			stopDisplay();
+			button.textContent = "Start";
+			status.textContent = "Camera off.";
+		}
 	} catch (err) {
 		status.textContent = `Error: ${err.name}. ${err.message}`;
 	} finally {
 		button.disabled = false;
 	}
-}
-
-function stopApp() {
-	if (!running) return;
-	running = false;
-	loopId++;
-	stopCamera(video);
-	stopDisplay();
-	button.textContent = "Start";
-	status.textContent = "Camera off.";
-	speechSynthesis.cancel(); // Stop any navigation alert still being spoken.
-	// Give the browser a moment to clear the cancelled alert before speaking again.
-	setTimeout(() => say("Navigation stopped."), 400);
-}
-
-button.addEventListener("click", () => (running ? stopApp() : startApp()));
-
-startIntro();
+});
