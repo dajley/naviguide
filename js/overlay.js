@@ -126,8 +126,6 @@ function drawLead(obj, box, g, w, h) {
 	ctx.fillRect(x, y, bw, bh);
 	ctx.strokeStyle = "#ffffff";
 	ctx.lineWidth = lw;
-	ctx.shadowColor = "rgba(255, 255, 255, 0.9)";
-	ctx.shadowBlur = lw * 2;
 	ctx.strokeRect(x, y, bw, bh);
 	ctx.restore();
 
