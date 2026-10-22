@@ -1,38 +1,16 @@
+// Phones get a vertical picture when held upright. Laptops get a wide one, because
+// their webcams are wide and asking for a vertical picture makes the browser crop it.
+// The app accepts whatever picture the camera gives, and the models fit any size
+// into their 640px square.
+const PHONE_SIZE = { width: 720, height: 1280 };
+const LAPTOP_SIZE = { width: 1280, height: 720 };
+
 let stream = null;
 
-const LONG = 1280;
-const SHORT = 720;
-const GOOD_ENOUGH = 0.15; // how far off the screen's proportions a picture can be and still be accepted
-
-// Width over height of the screen as it's held right now.
-function screenAspect() {
-	return window.innerWidth / window.innerHeight;
-}
-
-// How far a picture's proportions are from the screen's. 0 means they match.
-function mismatch(width, height) {
-	if (!width || !height) return Infinity;
-	return Math.abs(Math.log(width / height / screenAspect()));
-}
-
-function request(width, height) {
-	return navigator.mediaDevices.getUserMedia({
-		video: {
-			facingMode: { ideal: "environment" },
-			width: { ideal: width },
-			height: { ideal: height },
-		},
-		audio: false,
-	});
-}
-
-function settingsOf(s) {
-	const st = s.getVideoTracks()[0].getSettings();
-	return { width: st.width ?? 0, height: st.height ?? 0 };
-}
-
-function stopStream(s) {
-	s.getTracks().forEach((t) => t.stop());
+function wantedSize() {
+	const isPhone = navigator.maxTouchPoints > 0;
+	const upright = window.innerHeight >= window.innerWidth;
+	return isPhone && upright ? PHONE_SIZE : LAPTOP_SIZE;
 }
 
 export async function startCamera(videoEl) {
@@ -42,25 +20,16 @@ export async function startCamera(videoEl) {
 		);
 	}
 
-	// Ask first for the shape that matches the screen: tall when held upright, wide when sideways.
-	const upright = window.innerHeight >= window.innerWidth;
-	const matchShape = upright ? [SHORT, LONG] : [LONG, SHORT];
-	const otherShape = upright ? [LONG, SHORT] : [SHORT, LONG];
+	const size = wantedSize();
+	stream = await navigator.mediaDevices.getUserMedia({
+		video: {
+			facingMode: { ideal: "environment" },
+			width: { ideal: size.width },
+			height: { ideal: size.height },
+		},
+		audio: false,
+	});
 
-	let chosen = await request(...matchShape);
-	let asked = matchShape;
-	let fallback = false;
-
-	const first = settingsOf(chosen);
-	if (mismatch(first.width, first.height) > GOOD_ENOUGH) {
-		// The picture came back with the wrong proportions. Try the opposite shape instead.
-		stopStream(chosen);
-		chosen = await request(...otherShape);
-		asked = otherShape;
-		fallback = true;
-	}
-
-	stream = chosen;
 	videoEl.srcObject = stream;
 	await videoEl.play();
 	if (!videoEl.videoWidth) {
@@ -68,22 +37,11 @@ export async function startCamera(videoEl) {
 			videoEl.onloadedmetadata = () => resolve();
 		});
 	}
-
-	const got = settingsOf(stream);
-	return {
-		vw: videoEl.videoWidth,
-		vh: videoEl.videoHeight,
-		tw: got.width,
-		th: got.height,
-		screen: `${window.innerWidth}x${window.innerHeight}`,
-		asked: `${asked[0]}x${asked[1]}`,
-		fallback,
-	};
 }
 
 export function stopCamera(videoEl) {
 	if (stream) {
-		stopStream(stream);
+		stream.getTracks().forEach((t) => t.stop());
 		stream = null;
 	}
 	videoEl.srcObject = null;
