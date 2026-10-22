@@ -71,3 +71,61 @@ main {
 #toggle:disabled {
 	opacity: 0.5;
 }
+
+[hidden] {
+	display: none !important;
+}
+
+.intro {
+	position: fixed;
+	inset: 0;
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 24px;
+	padding: 24px;
+	background: #000;
+	color: #fff;
+	text-align: center;
+	transition: opacity 0.6s ease;
+}
+
+.intro.leaving {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.intro-logo {
+	width: min(60vw, 240px);
+	height: auto;
+}
+
+.intro-welcome h1 {
+	font-size: 1.75rem;
+	margin: 0 0 8px;
+}
+
+.intro-welcome p {
+	font-size: 1.25rem;
+	margin: 0;
+}
+
+.intro-begin {
+	font-size: 1.5rem;
+	min-height: 72px;
+	width: 100%;
+	max-width: 360px;
+	border: none;
+	border-radius: 12px;
+	background: #ffd400;
+	color: #000;
+	font-weight: bold;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.intro {
+		transition: none;
+	}
+}

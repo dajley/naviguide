@@ -27,6 +27,7 @@ const SHELL_FILES = [
 	"./js/depth.js",
 	"./js/detect.js",
 	"./js/geometry.js",
+	"./js/intro.js",
 	"./js/models.js",
 	"./js/navigation.js",
 	"./js/overlay.js",

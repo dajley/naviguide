@@ -10,6 +10,7 @@ import { handleAlert, resetAlerts } from "./alerts.js";
 import { SEM_EVERY } from "./config.js";
 import { setOverlay, startDisplay, stopDisplay } from "./overlay.js";
 import { updateGeometry } from "./geometry.js";
+import { startIntro } from "./intro.js";
 
 // Spoken as a safety message while the phone is held sideways.
 const UPRIGHT_MSG = "Hold your phone upright.";
@@ -184,3 +185,5 @@ button.addEventListener("click", async () => {
 		button.disabled = false;
 	}
 });
+
+startIntro();

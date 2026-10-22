@@ -15,7 +15,22 @@
 		<link rel="stylesheet" href="css/styles.css" />
 	</head>
 	<body>
-		<main>
+		<section id="intro" class="intro">
+			<img
+				class="intro-logo"
+				src="icons/naviguide-icon-512.png"
+				alt=""
+				aria-hidden="true"
+			/>
+			<div id="welcome" class="intro-welcome" hidden>
+				<h1>Welcome to NaViGuide</h1>
+				<p>Press Start to begin.</p>
+			</div>
+			<button id="begin" class="intro-begin" type="button">
+				Tap to continue
+			</button>
+		</section>
+		<main inert>
 			<div class="stage">
 				<video
 					id="camera"
