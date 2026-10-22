@@ -84,27 +84,42 @@ main {
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 24px;
-	padding: 24px;
+	gap: 1.5rem;
+	padding: 16px;
 	background: #000;
 	color: #fff;
 	text-align: center;
-	transition: opacity 0.6s ease;
+	transition:
+		opacity 0.6s ease,
+		transform 0.6s ease;
 }
 
 .intro.leaving {
 	opacity: 0;
+	transform: scale(1.4);
 	pointer-events: none;
 }
 
 .intro-logo {
-	width: min(60vw, 240px);
+	width: min(60vw, 280px);
 	height: auto;
+	animation: intro-logo 1.2s ease-out both;
+}
+
+@keyframes intro-logo {
+	from {
+		opacity: 0;
+		transform: scale(0.8);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
 }
 
 .intro-welcome h1 {
 	font-size: 1.75rem;
-	margin: 0 0 8px;
+	margin: 0 0 0.5rem;
 }
 
 .intro-welcome p {
@@ -112,19 +127,28 @@ main {
 	margin: 0;
 }
 
+/* Covers the whole opening screen, so a tap anywhere works. The label sits at the bottom. */
 .intro-begin {
-	font-size: 1.5rem;
-	min-height: 72px;
+	position: absolute;
+	inset: 0;
 	width: 100%;
-	max-width: 360px;
-	border: none;
-	border-radius: 12px;
-	background: #ffd400;
-	color: #000;
-	font-weight: bold;
+	height: 100%;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	padding-bottom: 12vh;
+	background: transparent;
+	border: 0;
+	color: #fff;
+	font: inherit;
+	font-size: 1.25rem;
+	cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {
+	.intro-logo {
+		animation: none;
+	}
 	.intro {
 		transition: none;
 	}
