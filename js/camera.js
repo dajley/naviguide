@@ -1,10 +1,7 @@
-let stream = null;
+// Asks the camera for its default picture. The app accepts whatever picture the camera
+// gives, and the models fit any size into their 640px square.
 
-function wantedSize() {
-	const isPhone = navigator.maxTouchPoints > 0;
-	const upright = window.innerHeight >= window.innerWidth;
-	return isPhone && upright ? PHONE_SIZE : LAPTOP_SIZE;
-}
+let stream = null;
 
 export async function startCamera(videoEl) {
 	if (!navigator.mediaDevices?.getUserMedia) {
@@ -13,13 +10,8 @@ export async function startCamera(videoEl) {
 		);
 	}
 
-	const size = wantedSize();
 	stream = await navigator.mediaDevices.getUserMedia({
-		video: {
-			facingMode: { ideal: "environment" },
-			width: { ideal: size.width },
-			height: { ideal: size.height },
-		},
+		video: { facingMode: { ideal: "environment" } },
 		audio: false,
 	});
 
