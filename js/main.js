@@ -1,13 +1,7 @@
 import { startCamera, stopCamera } from "./camera.js";
-import { loadModels, runSeg, runDepth, runSem, getBackend } from "./models.js";
-import { frameToTensor } from "./preprocess.js";
-import { decodeDetections } from "./detect.js";
-import { depthAt } from "./depth.js";
-import { analyzeSem } from "./sem.js";
 import { decide, markApproaching, resetNavigation } from "./navigation.js";
 import { unlockSpeech, say } from "./speech.js";
 import { handleAlert, resetAlerts } from "./alerts.js";
-import { SEM_EVERY } from "./config.js";
 import { setOverlay, startDisplay, stopDisplay } from "./overlay.js";
 import { updateGeometry } from "./geometry.js";
 import { startIntro } from "./intro.js";
@@ -23,11 +17,17 @@ const status = document.getElementById("status");
 let running = false;
 let loopId = 0;
 let busy = false;
-let cycle = 0;
+let needReset = false; // Tells the worker to start its ground state fresh.
 let lastGround = null;
 let lastSemMap = null;
 let prevMeters = new Map();
 let stopRequested = false; // Set when "stop navigation" is said while the app is still loading.
+
+// The model worker and the request in flight, if any.
+let worker = null;
+let pending = null;
+let modelsReady = false;
+let backend = "none";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -70,46 +70,67 @@ function isHorizontal() {
 	return window.innerWidth > window.innerHeight;
 }
 
-// Runs one model and returns its output along with how long it took.
-async function timed(run) {
-	const t = performance.now();
-	const out = await run();
-	return { out, ms: Math.round(performance.now() - t) };
+// Gets the model worker, starting it the first time.
+function getWorker() {
+	if (!worker) {
+		worker = new Worker("./js/worker.js");
+		worker.onmessage = (e) => {
+			if (!pending) return;
+			const { resolve, reject } = pending;
+			pending = null;
+			if (e.data.type === "error") reject(new Error(e.data.message));
+			else resolve(e.data);
+		};
+		worker.onerror = (e) => {
+			if (!pending) return;
+			const { reject } = pending;
+			pending = null;
+			reject(new Error(e.message || "The model worker failed."));
+		};
+	}
+	return worker;
 }
 
+// Sends one request to the worker and waits for its reply.
+function request(msg, transfer = []) {
+	return new Promise((resolve, reject) => {
+		pending = { resolve, reject };
+		getWorker().postMessage(msg, transfer);
+	});
+}
+
+// Loads the models inside the worker. Only runs once per page load.
+async function loadModelsInWorker() {
+	if (modelsReady) return;
+	const base = new URL("./", document.baseURI).href;
+	const reply = await request({ type: "init", base });
+	backend = reply.backend;
+	modelsReady = true;
+}
+
+// Sends one camera frame to the worker, then updates the app with the result.
 async function inferOnce() {
 	busy = true;
 	try {
-		const t0 = performance.now();
-		updateGeometry(video.videoWidth, video.videoHeight);
-		const frame = frameToTensor(video);
+		const vw = video.videoWidth;
+		const vh = video.videoHeight;
+		updateGeometry(vw, vh);
+		const bitmap = await createImageBitmap(video);
+		const reset = needReset;
+		needReset = false;
 
-		// The models run one after another. ONNX Runtime web does not allow overlapping runs across sessions.
-		const seg = await timed(() => runSeg(frame));
-		const depth = await timed(() => runDepth(frame));
+		const r = await request({ type: "frame", bitmap, reset, vw, vh }, [bitmap]);
 
-		// The semantic model runs every SEM_EVERY cycles. Its class map and ground state are reused in between.
-		const fresh = cycle % SEM_EVERY === 0 || lastGround === null;
-		const sem = fresh ? await timed(() => runSem(frame)) : null;
-
-		// Stop was pressed while the models were running. Don't update anything.
+		// Stop was pressed while the worker was busy. Don't update anything.
 		if (!running) return;
 
-		const depthMap = Object.values(depth.out)[0];
-		if (sem) {
-			lastSemMap = Object.values(sem.out)[0];
-			lastGround = analyzeSem(lastSemMap, depthMap);
-		}
-		cycle++;
-		const ms = Math.round(performance.now() - t0);
+		if (r.sem) lastSemMap = { dims: r.sem.dims, data: r.sem.data };
+		lastGround = r.ground;
 
-		const dets = decodeDetections(Object.values(seg.out)[0]).map((d) => ({
-			...d,
-			meters: depthAt(depthMap, d.box),
-		}));
+		const dets = r.dets;
 		prevMeters = markApproaching(dets, prevMeters);
 
-		let alert = decide(dets, lastGround, fresh);
+		let alert = decide(dets, lastGround, r.fresh);
 		if (isHorizontal()) {
 			// A safety message: it repeats every REMINDER_MS until the phone is upright again.
 			alert = {
@@ -125,14 +146,7 @@ async function inferOnce() {
 		handleAlert(alert);
 		setOverlay(lastSemMap, alert.focus);
 
-		// Timings and the backend go to the console. The status line stays focused on navigation.
-		const backend = getBackend();
-		console.log("timing", backend, {
-			seg: seg.ms,
-			depth: depth.ms,
-			sem: sem ? sem.ms : null,
-			total: ms,
-		});
+		console.log("timing", backend, r.timing);
 
 		status.textContent = `Alert: "${alert.text}" | ${describe(dets)} | ${describeGround(lastGround)}`;
 	} catch (err) {
@@ -164,14 +178,14 @@ async function startApp() {
 		resetAlerts();
 		resetNavigation();
 		prevMeters = new Map();
-		cycle = 0;
 		lastGround = null;
 		lastSemMap = null;
+		needReset = true;
 		status.textContent = "Starting camera…";
 		await startCamera(video);
 		startDisplay(video);
 		status.textContent = "Loading models…";
-		await loadModels();
+		await loadModelsInWorker();
 		running = true;
 		loopId++;
 		button.textContent = "Stop";
