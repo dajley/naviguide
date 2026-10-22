@@ -153,3 +153,25 @@ main {
 		transition: none;
 	}
 }
+
+/* Fixed heights so the camera frame, status text, and button don't shift when things change. */
+.stage {
+	position: relative;
+	height: 60vh;
+	overflow: hidden;
+}
+
+#status {
+	height: 72px;
+	margin: 12px 0;
+	font-size: 1.1rem;
+	line-height: 1.3;
+	overflow: hidden;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+#toggle {
+	height: 72px;
+}
