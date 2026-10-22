@@ -2,7 +2,7 @@
 // then the main screen. Browsers only allow speech after a tap, so the first tap starts it.
 
 const WELCOME = "Welcome to NaViGuide";
-const PROMPT = "Press Start to begin.";
+const PROMPT = "Say start navigation or press start to begin.";
 const FADE_MS = 600;
 
 const intro = document.getElementById("intro");
