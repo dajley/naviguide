@@ -1,7 +1,8 @@
 import { startCamera, stopCamera } from "./camera.js";
 import { decide, markApproaching, resetNavigation } from "./navigation.js";
 import { unlockSpeech, say } from "./speech.js";
-import { handleAlert, resetAlerts } from "./alerts.js";
+import { handleAlert, resetAlerts, setHold } from "./alerts.js";
+import { buildSceneJson } from "./scene.js";
 import { setOverlay, startDisplay, stopDisplay } from "./overlay.js";
 import { updateGeometry } from "./geometry.js";
 import { startIntro } from "./intro.js";
@@ -20,6 +21,8 @@ let busy = false;
 let needReset = false; // Tells the worker to start its ground state fresh.
 let lastGround = null;
 let lastSemMap = null;
+let lastDets = [];
+let lastAlertText = "";
 let prevMeters = new Map();
 let stopRequested = false; // Set when "stop navigation" is said while the app is still loading.
 
@@ -144,6 +147,8 @@ async function inferOnce() {
 			};
 		}
 		handleAlert(alert);
+		lastDets = dets;
+		lastAlertText = alert.text;
 		setOverlay(lastSemMap, alert.focus);
 
 		console.log("timing", backend, r.timing);
@@ -218,10 +223,30 @@ function stopApp() {
 	setTimeout(() => say("Navigation stopped."), 400);
 }
 
+// Answers from the scene at the moment the question was asked. The language model isn't connected yet.
+function answerQuestion(question) {
+	const scene = buildSceneJson(lastDets, lastGround, lastAlertText);
+	console.log("question:", question, scene);
+	const reply = scene
+		? "The question feature is not connected yet."
+		: "I don't have a camera reading yet.";
+	say(reply);
+	setTimeout(() => setHold(false), 1000 + reply.length * 80);
+}
+
 const voice = createVoice({
 	onStart: startApp,
 	onStop: stopApp,
 	onStatus: (text) => (status.textContent = text),
+	onQuestionOpen: () => {
+		setHold(true);
+		say("Yes?");
+	},
+	onQuestionTimeout: () => {
+		say("Sorry, I didn't get that.");
+		setTimeout(() => setHold(false), 2000);
+	},
+	onQuestion: answerQuestion,
 });
 
 button.addEventListener("click", () => (running ? stopApp() : startApp()));

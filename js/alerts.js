@@ -11,12 +11,14 @@ let lastSpokenAt = 0;
 let lastInfoAt = 0;
 let lastTopicAt = new Map();
 let queued = null; // { key, text, tier, topic, safety }. Only the newest message is kept.
+let held = false; // true while a question is being answered
 
 // Speaks the queued message once speech is free. Sentences are never cut off.
 // Information messages (tier 3) wait INFO_GAP_MS after the last one.
 // Repeats of a recently spoken subject are dropped unless they're safety messages.
 function attempt() {
 	if (!queued) return;
+	if (held) return;
 	if (queued.key !== currentKey) {
 		queued = null;
 		return;
@@ -51,6 +53,7 @@ export function resetAlerts() {
 	lastInfoAt = 0;
 	lastTopicAt = new Map();
 	queued = null;
+	held = false;
 }
 
 export function handleAlert(alert) {
@@ -77,4 +80,11 @@ export function handleAlert(alert) {
 		};
 	}
 	attempt();
+}
+
+// Pauses ordinary navigation speech while a question is answered. Safety messages still get through.
+export function setHold(on) {
+	held = on;
+	if (on && window.speechSynthesis) speechSynthesis.cancel();
+	if (!on) attempt();
 }
