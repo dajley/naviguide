@@ -1,6 +1,6 @@
 import { startCamera, stopCamera } from "./camera.js";
 import { decide, markApproaching, resetNavigation } from "./navigation.js";
-import { unlockSpeech, say } from "./speech.js";
+import { unlockSpeech, say, setOnSpeak, cancelSpeech } from "./speech.js";
 import { handleAlert, resetAlerts, setHold } from "./alerts.js";
 import { buildSceneJson } from "./scene.js";
 import { setOverlay, startDisplay, stopDisplay } from "./overlay.js";
@@ -25,7 +25,7 @@ let lastDets = [];
 let lastAlertText = "";
 let prevMeters = new Map();
 let stopRequested = false; // Set when "stop navigation" is said while the app is still loading.
-
+let hasStartedOnce = false;
 // The model worker and the request in flight, if any.
 let worker = null;
 let pending = null;
@@ -192,6 +192,7 @@ async function startApp() {
 		status.textContent = "Loading models…";
 		await loadModelsInWorker();
 		running = true;
+		hasStartedOnce = true;
 		loopId++;
 		button.textContent = "Stop";
 		if (stopRequested) {
@@ -218,7 +219,7 @@ function stopApp() {
 	stopDisplay();
 	button.textContent = "Start";
 	status.textContent = "Camera off.";
-	speechSynthesis.cancel(); // Stop any navigation alert still being spoken.
+	cancelSpeech(); // Stop any navigation alert still being spoken.
 	// Give the browser a moment to clear the cancelled alert before speaking again.
 	setTimeout(() => say("Navigation stopped."), 400);
 }
@@ -242,12 +243,19 @@ const voice = createVoice({
 		setHold(true);
 		say("Yes?");
 	},
+	onRetry: () => {
+		say("Sorry, I didn't get that. Try again.");
+	},
 	onQuestionTimeout: () => {
-		say("Sorry, I didn't get that.");
+		say("Sorry, I still didn't get that.");
 		setTimeout(() => setHold(false), 2000);
 	},
 	onQuestion: answerQuestion,
+	canRestart: () => hasStartedOnce && !running,
 });
+
+// Every spoken line is recorded, so the mic's echo of it can be dropped.
+setOnSpeak((text) => voice.noteSpeech(text));
 
 button.addEventListener("click", () => (running ? stopApp() : startApp()));
 
