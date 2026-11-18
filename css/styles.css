@@ -1,0 +1,177 @@
+/* Styles for NaViGuide: the dark camera screen, the opening intro screens, and the Start/Stop button. */
+
+:root {
+	color-scheme: dark;
+	--bg: #000;
+	--fg: #fff;
+}
+
+html,
+body {
+	margin: 0;
+	height: 100%;
+	background: var(--bg);
+	color: var(--fg);
+	font-family: system-ui, sans-serif;
+}
+
+main {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+	box-sizing: border-box;
+}
+
+/* The video and overlay share this box. Both use "contain", so the overlay lines up with the picture. */
+.stage {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	background: #111;
+	overflow: hidden;
+}
+
+#camera {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	pointer-events: none;
+}
+
+#overlay {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	pointer-events: none;
+}
+
+/* Fixed heights so the status text and button don't shift when things change. */
+#status {
+	height: 6rem;
+	margin: 8px 0;
+	font-size: 0.95rem;
+	line-height: 1.25;
+	overflow: hidden;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+}
+
+#toggle {
+	font-size: 1.5rem;
+	height: 72px;
+	margin-bottom: 16px;
+	border: none;
+	border-radius: 12px;
+	background: #ffd400;
+	color: #000;
+	font-weight: bold;
+}
+
+#toggle:disabled {
+	opacity: 0.5;
+}
+
+[hidden] {
+	display: none !important;
+}
+
+.intro {
+	position: fixed;
+	inset: 0;
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 1.5rem;
+	padding: 16px;
+	background: #000;
+	color: #fff;
+	text-align: center;
+	transition:
+		opacity 0.6s ease,
+		transform 0.6s ease;
+}
+
+.intro.leaving {
+	opacity: 0;
+	transform: scale(1.4);
+	pointer-events: none;
+}
+
+.intro-logo {
+	width: min(60vw, 280px);
+	height: auto;
+	animation: intro-logo 1.2s ease-out both;
+}
+
+@keyframes intro-logo {
+	from {
+		opacity: 0;
+		transform: scale(0.8);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+.intro-welcome h1 {
+	font-size: 1.75rem;
+	margin: 0 0 0.5rem;
+}
+
+.intro-welcome p {
+	font-size: 1.25rem;
+	margin: 0;
+}
+
+/* Covers the whole opening screen, so a tap anywhere works. The label sits at the bottom. */
+.intro-begin {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	padding-bottom: 12vh;
+	background: transparent;
+	border: 0;
+	color: #fff;
+	font: inherit;
+	font-size: 1.25rem;
+	cursor: pointer;
+}
+
+/* Top-right corner, above the tap-anywhere layer. */
+.intro-skip {
+	position: absolute;
+	top: max(16px, env(safe-area-inset-top));
+	right: 16px;
+	z-index: 1;
+	padding: 8px 14px;
+	background: transparent;
+	color: #fff;
+	border: 1px solid #fff;
+	border-radius: 6px;
+	font: inherit;
+	font-size: 1rem;
+	cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.intro-logo {
+		animation: none;
+	}
+	.intro {
+		transition: none;
+	}
+}
